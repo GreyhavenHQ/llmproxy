@@ -14,7 +14,7 @@ material for looking things up, and explanation for understanding the design.
 
 - [installation.md](installation.md): build from source, state layout, first
   key, systemd, upgrades.
-- [docker.md](docker.md): the image, docker compose, switching to Postgres.
+- [docker.md](docker.md): the image, docker compose, switching to Postgres, deploying on Coolify.
 - [sso.md](sso.md): OIDC login, sessions, group-based roles, an Authentik
   walkthrough.
 - [providers-and-models.md](providers-and-models.md): register providers,

@@ -37,11 +37,15 @@ In SSO mode the guard does not apply and the variable is unnecessary.
 
 ## docker compose
 
-The repository ships a `docker-compose.yml` that encodes the safe local-mode
-setup: SQLite state in a named volume, `LLMPROXY_ALLOW_NONLOCAL=1`, and the
-port published only on the host's loopback (`127.0.0.1:4000:4000`) so the
-proxy stays local to the host despite the container-internal `0.0.0.0` bind.
-Widen the port mapping deliberately, ideally only after switching to SSO.
+The repository ships two compose files: `docker-compose.yml` for local
+development and `docker-compose.coolify.yml` for deployment behind a PaaS
+reverse proxy (see [Deploying on Coolify](#deploying-on-coolify)).
+
+`docker-compose.yml` encodes the safe local-mode setup: SQLite state in a
+named volume, `LLMPROXY_ALLOW_NONLOCAL=1`, and the port published only on
+the host's loopback (`127.0.0.1:4000:4000`) so the proxy stays local to the
+host despite the container-internal `0.0.0.0` bind. Widen the port mapping
+deliberately, ideally only after switching to SSO.
 
 ```bash
 docker compose up -d
@@ -113,3 +117,27 @@ database, so plan the switch before you accumulate keys and usage you care
 about. The secret file in `/data` stays authoritative either way: keep the
 `llmproxy-data` volume (or set `LLMPROXY_KEY_SECRET`), because existing API
 keys and encrypted provider credentials are only valid under that secret.
+
+## Deploying on Coolify
+
+`docker-compose.coolify.yml` targets Coolify or any compose-based PaaS. It
+differs from the development file in two ways:
+
+- Postgres is the default backend, as a `db` service with a healthcheck the
+  app waits on.
+- There is no `ports` mapping. The platform's reverse proxy routes to the
+  container on `LLMPROXY_PORT` (default 4000); nothing is published on the
+  host directly.
+
+Every supported `LLMPROXY_*` variable appears in the file as
+`${VAR:-default}`. Coolify parses these placeholders and lists each one as
+an editable environment variable in its UI, so configuration happens there
+rather than by editing the file. At minimum set `POSTGRES_PASSWORD` (it
+feeds both the `db` service and the connection URL). Once the deployment is
+reachable over HTTPS, configure the `LLMPROXY_OIDC_*` variables for SSO;
+until then the file defaults to local mode with `LLMPROXY_ALLOW_NONLOCAL=1`,
+which means anyone who can reach the deployment can use its keys.
+
+The `/data` volume still matters with Postgres: it holds the generated key
+secret and admin password files. Alternatively pin `LLMPROXY_KEY_SECRET` and
+`LLMPROXY_ADMIN_PASSWORD` through the environment.

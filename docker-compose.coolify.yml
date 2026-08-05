@@ -1,0 +1,82 @@
+# llmproxy for Coolify (or any compose-based PaaS): Postgres state, no port
+# mapping. The platform's reverse proxy routes to the container on
+# LLMPROXY_PORT (default 4000); nothing is published on the host directly.
+#
+# Every supported variable is listed with its default via ${VAR:-default}
+# interpolation, so Coolify surfaces them all as editable environment
+# variables. At minimum set POSTGRES_PASSWORD, and set the LLMPROXY_OIDC_*
+# variables for SSO once the deployment is reachable over HTTPS.
+#
+# For local development use docker-compose.yml instead.
+#
+# First key:  docker compose exec llmproxy llmproxy key create -label bootstrap
+
+services:
+  llmproxy:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Still needed with Postgres: holds the generated key secret and the
+      # local admin password unless you set them explicitly below.
+      - llmproxy-data:/data
+    environment:
+      LLMPROXY_DATABASE_URL: postgres://llmproxy:${POSTGRES_PASSWORD:-change-me}@db:5432/llmproxy?sslmode=disable
+      # HMAC / encryption secret; empty means generate one into
+      # LLMPROXY_SECRET_FILE at first boot.
+      LLMPROXY_KEY_SECRET: ${LLMPROXY_KEY_SECRET:-}
+      LLMPROXY_SECRET_FILE: ${LLMPROXY_SECRET_FILE:-/data/secret}
+      LLMPROXY_HOST: ${LLMPROXY_HOST:-0.0.0.0}
+      LLMPROXY_PORT: ${LLMPROXY_PORT:-4000}
+      LLMPROXY_ALLOW_NONLOCAL: ${LLMPROXY_ALLOW_NONLOCAL:-1}
+      # SSO (Authentik or any OIDC provider); empty issuer = local
+      # single-admin mode.
+      LLMPROXY_OIDC_ISSUER: ${LLMPROXY_OIDC_ISSUER:-}
+      LLMPROXY_OIDC_CLIENT_ID: ${LLMPROXY_OIDC_CLIENT_ID:-}
+      LLMPROXY_OIDC_CLIENT_SECRET: ${LLMPROXY_OIDC_CLIENT_SECRET:-}
+      LLMPROXY_OIDC_REDIRECT_URL: ${LLMPROXY_OIDC_REDIRECT_URL:-}
+      LLMPROXY_OIDC_SCOPES: ${LLMPROXY_OIDC_SCOPES:-openid profile email}
+      LLMPROXY_OIDC_GROUPS_CLAIM: ${LLMPROXY_OIDC_GROUPS_CLAIM:-groups}
+      LLMPROXY_OIDC_ADMIN_GROUP: ${LLMPROXY_OIDC_ADMIN_GROUP:-}
+      LLMPROXY_OIDC_REQUIRED_GROUP: ${LLMPROXY_OIDC_REQUIRED_GROUP:-}
+      LLMPROXY_SESSION_TTL: ${LLMPROXY_SESSION_TTL:-12h}
+      # Local admin login; empty password means generate one into
+      # LLMPROXY_ADMIN_PASSWORD_FILE at first boot.
+      LLMPROXY_LOCAL_ADMIN_NAME: ${LLMPROXY_LOCAL_ADMIN_NAME:-local-admin}
+      LLMPROXY_ADMIN_PASSWORD: ${LLMPROXY_ADMIN_PASSWORD:-}
+      LLMPROXY_ADMIN_PASSWORD_FILE: ${LLMPROXY_ADMIN_PASSWORD_FILE:-/data/admin-password}
+      LLMPROXY_ADMIN_PASSWORD_DISABLED: ${LLMPROXY_ADMIN_PASSWORD_DISABLED:-0}
+      LLMPROXY_CATALOG_TTL: ${LLMPROXY_CATALOG_TTL:-5s}
+      LLMPROXY_MAX_BODY_BYTES: ${LLMPROXY_MAX_BODY_BYTES:-10485760}
+      LLMPROXY_MAX_EMBEDDING_BATCH: ${LLMPROXY_MAX_EMBEDDING_BATCH:-2048}
+      LLMPROXY_PRICING_FILE: ${LLMPROXY_PRICING_FILE:-}
+      # debug | info | warn | error
+      LLMPROXY_LOG_LEVEL: ${LLMPROXY_LOG_LEVEL:-info}
+      LLMPROXY_TRANSPARENT_ANTHROPIC_BASE_URL: ${LLMPROXY_TRANSPARENT_ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:${LLMPROXY_PORT:-4000}/healthz"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: llmproxy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: llmproxy
+    volumes:
+      - llmproxy-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U llmproxy -d llmproxy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  llmproxy-data:
+  llmproxy-pg:

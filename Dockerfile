@@ -27,5 +27,7 @@ ENV LLMPROXY_DATABASE_URL=/data/llmproxy.db \
     LLMPROXY_HOST=0.0.0.0 \
     LLMPROXY_PORT=4000
 EXPOSE 4000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -q -O /dev/null "http://127.0.0.1:${LLMPROXY_PORT:-4000}/healthz" || exit 1
 ENTRYPOINT ["llmproxy"]
 CMD ["serve"]
