@@ -389,6 +389,22 @@ export function Models() {
     }
   }
 
+  const nameField = (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor="m-alias">{form.kind === 'alias' ? 'Name' : 'Alias'}</Label>
+      <Input
+        id="m-alias"
+        placeholder={
+          form.kind === 'alias'
+            ? 'a new name for it'
+            : form.upstream_name.trim() || 'same as the upstream name'
+        }
+        value={form.alias}
+        onChange={(e) => setForm({ ...form, alias: e.target.value })}
+      />
+    </div>
+  )
+
   return (
     <div className="flex flex-col gap-6">
       <Card>
@@ -407,7 +423,10 @@ export function Models() {
         <CardContent>
           <form onSubmit={create} className="flex flex-col gap-4">
             <KindSwitch value={form.kind} onChange={(kind) => setForm({ ...form, kind })} />
+            {/* In alias mode the new name comes first; the optional alias of a
+                provider binding stays last, after what it binds. */}
             <div className="grid gap-4 sm:grid-cols-3">
+              {form.kind === 'alias' && nameField}
               {form.kind === 'provider' ? (
                 <>
                   <div className="flex flex-col gap-2">
@@ -455,21 +474,7 @@ export function Models() {
                   />
                 </div>
               )}
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="m-alias">
-                  {form.kind === 'alias' ? 'Name' : 'Alias'}
-                </Label>
-                <Input
-                  id="m-alias"
-                  placeholder={
-                    form.kind === 'alias'
-                      ? 'a new name for it'
-                      : form.upstream_name.trim() || 'same as the upstream name'
-                  }
-                  value={form.alias}
-                  onChange={(e) => setForm({ ...form, alias: e.target.value })}
-                />
-              </div>
+              {form.kind === 'provider' && nameField}
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
               <PriceFields
