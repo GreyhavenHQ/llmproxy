@@ -48,8 +48,8 @@ curl -s -X DELETE $P/my/keys/8c1de2f4a6b84c33a1f09e7d5b246810 \
 # {"deleted": "8c1de2f4a6b84c33a1f09e7d5b246810"}
 ```
 
-**Admin-issued.** An admin mints keys for any principal, in the UI (Admin,
-Users, then Keys on the principal's row) or by name over the API:
+**Admin-issued.** An admin sees and revokes every key in the UI (Admin, All
+keys) and mints keys for any principal by name over the API:
 
 ```bash
 curl -s $P/admin/v1/keys -H "authorization: Bearer $ADMIN" \
@@ -61,8 +61,8 @@ across principals (`GET /admin/v1/keys?principal=alice`) and delete any key
 (`DELETE /admin/v1/keys/{id}`).
 
 **Service principals.** For workloads, create a `service` principal so the
-key survives staff turnover and shows up under its own name in usage. The
-same UI page has a "Create a service account" form; over the API:
+key survives staff turnover and shows up under its own name in usage. In the
+UI (Admin, Services) one step creates the service with its key; over the API:
 
 ```bash
 curl -s $P/admin/v1/principals -H "authorization: Bearer $ADMIN" \

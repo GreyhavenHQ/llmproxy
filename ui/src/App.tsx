@@ -8,6 +8,8 @@ import { Providers } from '@/pages/Providers'
 import { Models } from '@/pages/Models'
 import { Requests } from '@/pages/Requests'
 import { Users } from '@/pages/Users'
+import { Services } from '@/pages/Services'
+import { AllKeys } from '@/pages/AllKeys'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -85,7 +87,7 @@ function ThemeToggle() {
 // index.html for any non-file GET, so these paths resolve without a router.
 // The admin pages (/providers, /models, /users) share one top-level "Admin"
 // tab with a sub-nav, keeping the member-facing nav identical for everyone.
-const ADMIN_SUBS = ['providers', 'models', 'users']
+const ADMIN_SUBS = ['providers', 'models', 'users', 'services', 'all-keys']
 
 function tabsFromLocation(isAdmin: boolean): { tab: string; sub: string } {
   let seg = window.location.pathname.replace(/^\/+/, '').split('/')[0]
@@ -175,6 +177,8 @@ function Shell({ me }: { me: Me }) {
                 <TabsTrigger value="providers">Providers</TabsTrigger>
                 <TabsTrigger value="models">Models</TabsTrigger>
                 <TabsTrigger value="users">Users</TabsTrigger>
+                <TabsTrigger value="services">Services</TabsTrigger>
+                <TabsTrigger value="all-keys">All keys</TabsTrigger>
               </TabsList>
               <TabsContent value="providers">
                 <Providers />
@@ -184,6 +188,12 @@ function Shell({ me }: { me: Me }) {
               </TabsContent>
               <TabsContent value="users">
                 <Users />
+              </TabsContent>
+              <TabsContent value="services">
+                <Services />
+              </TabsContent>
+              <TabsContent value="all-keys">
+                <AllKeys />
               </TabsContent>
             </Tabs>
           </TabsContent>

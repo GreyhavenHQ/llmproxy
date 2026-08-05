@@ -132,11 +132,10 @@ keys, and see their own usage and cost per model and endpoint. The key goes into
 `https://llmproxy.example.com/v1`.
 
 An `llm-admins` member additionally sees usage by user, the request metadata
-log, and the Admin tab of the UI: provider and model management (including
-upstream model discovery) plus users and service accounts (create service
-accounts, mint and revoke anyone's keys, sign a user out everywhere). For
-scripted administration a key inherits the principal's role, so a UI-minted
-key of an `llm-admins` member is an admin key.
+log, and the Admin tab of the UI: providers, models, users (sign someone out
+everywhere), services (one key per service, created in one step) and all
+keys. For scripted administration a key inherits the principal's role, so a
+UI-minted key of an `llm-admins` member is an admin key.
 
 ### Break-glass admin password
 
