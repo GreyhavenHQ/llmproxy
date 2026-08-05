@@ -1,0 +1,11 @@
+.git
+bin/
+*.db
+*.db-wal
+*.db-shm
+.llmproxy/
+.env
+vibedocs/
+docs/
+*.md
+ui/node_modules/

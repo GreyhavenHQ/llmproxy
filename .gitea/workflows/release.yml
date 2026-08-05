@@ -1,0 +1,30 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build static binaries
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -ldflags="-s -w" -o dist/llmproxy-linux-amd64 ./cmd/llmproxy
+          CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build -ldflags="-s -w" -o dist/llmproxy-linux-arm64 ./cmd/llmproxy
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dist/llmproxy-darwin-arm64 ./cmd/llmproxy
+          cd dist && sha256sum llmproxy-* > SHA256SUMS
+      # Uses the workflow token by default; set a RELEASE_TOKEN secret if the
+      # default token cannot create releases on your Gitea instance.
+      - name: Create release and attach binaries
+        uses: https://gitea.com/actions/release-action@main
+        with:
+          files: |-
+            dist/**
+          api_key: ${{ secrets.RELEASE_TOKEN || github.token }}

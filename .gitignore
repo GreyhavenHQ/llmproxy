@@ -1,0 +1,8 @@
+/bin/
+*.db
+*.db-wal
+*.db-shm
+.llmproxy/
+.env
+ui/node_modules/
+.kandev/

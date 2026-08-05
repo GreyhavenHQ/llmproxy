@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>llmproxy</title>
+    <script>
+      // Apply the stored theme before first paint to avoid a flash.
+      try {
+        const t = localStorage.getItem('llmproxy-theme')
+        if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark')
+        }
+      } catch {}
+    </script>
+    <script type="module" crossorigin src="/assets/index-DaZEURht.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CbmibbIu.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

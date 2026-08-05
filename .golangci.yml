@@ -1,0 +1,29 @@
+# golangci-lint v2 configuration.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+  settings:
+    errcheck:
+      # Idiomatic best-effort calls: deferred Close, deferred Rollback,
+      # writes to an http.ResponseWriter, cleanup of temp dirs.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+        - (*github.com/monadical/llmproxy/internal/store.Store).Close
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - os.RemoveAll
+
+formatters:
+  enable:
+    - gofmt

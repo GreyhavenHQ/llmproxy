@@ -1,0 +1,42 @@
+# llmproxy with SQLite state in a named volume.
+#
+# The container binds 0.0.0.0 internally; in local (no-SSO) mode that requires
+# the explicit LLMPROXY_ALLOW_NONLOCAL=1 below. Publishing only on 127.0.0.1
+# keeps it loopback-only on the host; change the port mapping deliberately.
+# For SSO mode, remove ALLOW_NONLOCAL and set the LLMPROXY_OIDC_* variables.
+#
+# First key:  docker compose exec llmproxy llmproxy key create -label bootstrap
+
+services:
+  llmproxy:
+    build: .
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - llmproxy-data:/data
+    environment:
+      LLMPROXY_ALLOW_NONLOCAL: "1"
+      # SSO (Authentik or any OIDC provider) instead of local mode:
+      # LLMPROXY_OIDC_ISSUER: https://auth.example.com/application/o/llmproxy/
+      # LLMPROXY_OIDC_CLIENT_ID: llmproxy
+      # LLMPROXY_OIDC_CLIENT_SECRET: change-me
+      # LLMPROXY_OIDC_REDIRECT_URL: https://llmproxy.example.com/auth/callback
+      # LLMPROXY_OIDC_ADMIN_GROUP: llm-admins
+      # LLMPROXY_OIDC_REQUIRED_GROUP: llm-users
+      # Postgres instead of SQLite:
+      # LLMPROXY_DATABASE_URL: postgres://llmproxy:change-me@db:5432/llmproxy
+    restart: unless-stopped
+
+  # db:
+  #   image: postgres:17-alpine
+  #   environment:
+  #     POSTGRES_USER: llmproxy
+  #     POSTGRES_PASSWORD: change-me
+  #     POSTGRES_DB: llmproxy
+  #   volumes:
+  #     - llmproxy-pg:/var/lib/postgresql/data
+  #   restart: unless-stopped
+
+volumes:
+  llmproxy-data:
+  # llmproxy-pg:

@@ -1,0 +1,2770 @@
+openapi: 3.1.0
+info:
+  title: llmproxy
+  version: 1.0.0
+  description: |
+    Self-hosted, OpenAI-compatible LLM proxy. A single static Go binary that
+    routes OpenAI-dialect requests to registered upstream providers, with
+    per-user API keys, a curated model catalog and per-unit usage accounting.
+
+    Surface areas:
+
+    * `/v1` - OpenAI-compatible ingress. Request bodies are passed through to
+      the upstream byte-for-byte at the field level, so any field OpenAI's
+      chat/completions/embeddings endpoints accept is accepted here. The proxy
+      itself only reads or rewrites four top-level fields: `model` (replaced
+      with the upstream model name), `stream`, `stream_options`
+      (`include_usage` is forced to `true` on streamed requests) and, for
+      embeddings, `input` (batch-size cap only). Everything else, including
+      nested message content, vision parts and tool calls, is forwarded as raw
+      bytes and never inspected. Upstream responses, including upstream error
+      bodies and status codes, pass through unchanged. The same routes are
+      also served at the root without the `/v1` prefix for clients configured
+      that way.
+    * `/model/*` - model-management compatibility endpoints (`/model/new`,
+      `/model/info`, `/model/delete`) for existing proxy management tooling.
+    * `/my` - self-service key, relay-token and usage management for the
+      calling principal.
+    * `/transparent/anthropic/{token}` - transparent Anthropic relay. Any
+      method and sub-path is forwarded verbatim to the Anthropic API with the
+      caller's own credentials; the relay token in the path only attributes
+      usage to a principal.
+    * `/admin/v1` - admin API (providers, models, principals, keys, pricing,
+      usage, requests, audit events). Requires the admin role: an admin API
+      key, or an admin browser session (mutations are origin-checked).
+    * `/auth` - browser login: identity (`/auth/me`), admin password
+      (`/auth/password`) and OIDC SSO (authorization code flow, active when
+      `LLMPROXY_OIDC_ISSUER` is configured).
+    * `/` - built-in web UI, an embedded React app that is a plain client of
+      the endpoints in this spec.
+    * `/healthz`, `/metrics` - operational endpoints, unauthenticated.
+
+    Proxy-generated errors always use the envelope in `ErrorEnvelope` with
+    `type` fixed to `llmproxy_error` and a stable machine `code`, and carry the
+    header `x-llmproxy-error-source: proxy`. Upstream errors are relayed
+    unmodified with `x-llmproxy-error-source: upstream`.
+  license:
+    name: Apache 2.0
+    identifier: Apache-2.0
+
+servers:
+  - url: http://127.0.0.1:4000
+    description: Default local bind
+
+tags:
+  - name: openai
+    description: OpenAI-compatible ingress
+  - name: self-service
+    description: Own keys, relay tokens and usage
+  - name: transparent
+    description: >
+      Transparent Anthropic relay. Requests to
+      /transparent/anthropic/{token}/{path} are forwarded to the Anthropic
+      API unchanged - method, path suffix, query, headers (hop-by-hop and
+      Cookie stripped) and body all pass through, including the caller's own
+      x-api-key or OAuth bearer credential. The relay token is minted under
+      /my/relay-tokens and only attributes usage; it authenticates nothing
+      else, and API keys are not accepted in its place. Usage (tokens, cost,
+      duration, status) is recorded from the response on the way past; no
+      request or response content is ever persisted.
+  - name: admin
+    description: Admin API (admin role, via API key or browser session)
+  - name: auth
+    description: Browser login (password and SSO)
+  - name: operational
+    description: Health, metrics and the built-in UI
+  - name: compatibility
+    description: >
+      Model-management compatibility endpoints for existing proxy management
+      tooling. The OpenAI routes are additionally served at
+      the root without the /v1 prefix (POST /chat/completions,
+      POST /completions, POST /embeddings, GET /models) for clients
+      configured that way. GET /models is also a page of the built-in UI;
+      a request whose Accept header lists text/html (a browser navigation)
+      receives the app instead of JSON. /v1/models always returns JSON.
+
+security:
+  - bearerApiKey: []
+  - apiKeyHeader: []
+  - sessionCookie: []
+
+components:
+  securitySchemes:
+    bearerApiKey:
+      type: http
+      scheme: bearer
+      description: >
+        API key (prefix `lp_`) in `Authorization: Bearer <key>`. Works on all
+        authenticated endpoints.
+    apiKeyHeader:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: >
+        Same API key in the `x-api-key` header. Only consulted when no bearer
+        `Authorization` header is present.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: llmproxy_session
+      description: >
+        Stateless signed browser session issued by the SSO callback or the
+        admin password login. Carries the principal's role: valid on `/v1`,
+        `/my`, and (admin role) `/admin/v1`. Non-GET requests with a
+        mismatching `Origin` header are rejected with 403
+        `cross_origin_rejected`.
+
+  headers:
+    XLLMProxyProvider:
+      description: Name of the provider that served (or was asked to serve) the request.
+      schema:
+        type: string
+    XLLMProxyModel:
+      description: Upstream model name the alias resolved to.
+      schema:
+        type: string
+    XLLMProxyErrorSource:
+      description: >
+        `proxy` when the error was generated by llmproxy itself, `upstream`
+        when an upstream error response is being relayed unchanged.
+      schema:
+        type: string
+        enum: [proxy, upstream]
+
+  parameters:
+    limit:
+      name: limit
+      in: query
+      description: Page size, 1 to 500. Values outside that range fall back to 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
+    offset:
+      name: offset
+      in: query
+      description: Result offset, 0 or greater. Invalid values fall back to 0.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    since:
+      name: since
+      in: query
+      description: >
+        Inclusive lower bound, ISO 8601 (`2026-07-01`, `2026-07-01T12:00:00`,
+        RFC 3339 with or without fractional seconds). Empty disables the filter.
+      schema:
+        type: string
+    until:
+      name: until
+      in: query
+      description: Exclusive upper bound, same accepted formats as `since`.
+      schema:
+        type: string
+    bucket:
+      name: bucket
+      in: query
+      description: Time bucket width for a usage series.
+      schema:
+        type: string
+        enum: [hour, day, week, month]
+        default: day
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      description: >
+        Envelope for every proxy-generated error. Upstream errors are relayed
+        with their original body instead and are distinguishable by the
+        `x-llmproxy-error-source: upstream` header and the absence of this
+        envelope's `llmproxy.source: proxy` marker.
+      required: [error, llmproxy]
+      properties:
+        error:
+          type: object
+          required: [message, type, code, param]
+          properties:
+            message:
+              type: string
+              description: Human-readable description.
+            type:
+              type: string
+              const: llmproxy_error
+            code:
+              type: string
+              description: Stable machine code, e.g. `model_not_found`.
+            param:
+              type: [string, "null"]
+              description: Offending request field, when one applies (e.g. `model`, `input`).
+        llmproxy:
+          type: object
+          required: [source]
+          properties:
+            source:
+              type: string
+              const: proxy
+
+    ModelDeployment:
+      type: object
+      description: >
+        A model binding rendered in the deployment shape used by the
+        model-management compatibility endpoints. The `litellm_params` field
+        name is part of the wire format.
+      required: [model_name, litellm_params, model_info]
+      properties:
+        model_name:
+          type: string
+          description: Public alias.
+        litellm_params:
+          type: object
+          required: [model, api_base, custom_llm_provider]
+          properties:
+            model:
+              type: string
+              description: Upstream model name.
+            api_base:
+              type: string
+              description: Provider base URL. The credential is never included.
+            custom_llm_provider:
+              type: string
+              const: openai
+        model_info:
+          type: object
+          required: [id]
+          properties:
+            id:
+              type: string
+              description: Binding id; the handle for `/model/delete`.
+
+    ModelListEntry:
+      type: object
+      required: [id, object, created, owned_by]
+      properties:
+        id:
+          type: string
+          description: Public alias.
+        object:
+          type: string
+          const: model
+        created:
+          type: integer
+          description: Unix seconds of binding creation (0 if unparseable).
+        owned_by:
+          type: string
+          description: Provider name.
+
+    ModelList:
+      type: object
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          const: list
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelListEntry'
+
+    ProxyRequestBody:
+      type: object
+      description: >
+        Passed through to the upstream. Only the fields listed here are read or
+        rewritten by the proxy; every other top-level field and all nested
+        content is forwarded as raw bytes.
+      required: [model]
+      additionalProperties: true
+      properties:
+        model:
+          type: string
+          description: >
+            Public alias of a model binding on an enabled provider.
+            Rewritten to the upstream model name before forwarding.
+        stream:
+          type: boolean
+          description: >
+            Read to select SSE relaying and, for chat, to require the
+            `chat_stream` capability. Ignored on embeddings.
+        stream_options:
+          type: object
+          additionalProperties: true
+          description: >
+            On streamed requests the proxy sets `include_usage: true` here
+            (creating the object if absent) so usage arrives in the final SSE
+            chunk. Other members are preserved.
+        input:
+          description: >
+            Embeddings only. When it is a JSON array its length is checked
+            against `LLMPROXY_MAX_EMBEDDING_BATCH` (default 2048); larger
+            batches are rejected with 400 `embedding_batch_too_large`.
+            String inputs and non-array shapes are forwarded untouched.
+          oneOf:
+            - type: string
+            - type: array
+
+    KeyView:
+      type: object
+      required: [id, key_suffix, label, created_at, last_used_at]
+      properties:
+        id:
+          type: string
+        key_suffix:
+          type: string
+          description: >
+            Last 4 characters of the plaintext, for display as `***xxxx`. The
+            plaintext itself is never stored or shown again.
+        label:
+          type: string
+        created_at:
+          type: string
+          description: UTC timestamp, `YYYY-MM-DDTHH:MM:SS.ssssssZ`.
+        last_used_at:
+          type: [string, "null"]
+          description: Coarse (refreshed at most once a minute).
+
+    KeyCreated:
+      allOf:
+        - $ref: '#/components/schemas/KeyView'
+        - type: object
+          required: [key]
+          properties:
+            key:
+              type: string
+              description: >
+                Plaintext API key (`lp_` prefix). Shown exactly once; only a
+                keyed HMAC-SHA256 hash is stored.
+
+    AdminKeyCreated:
+      allOf:
+        - $ref: '#/components/schemas/KeyCreated'
+        - type: object
+          required: [principal]
+          properties:
+            principal:
+              type: string
+              description: Name of the principal the key belongs to.
+
+    KeyDeleted:
+      type: object
+      required: [deleted]
+      properties:
+        deleted:
+          type: string
+          description: Id of the deleted key.
+
+    RelayTokenView:
+      type: object
+      required: [id, token_suffix, label, created_at, last_used_at]
+      properties:
+        id:
+          type: string
+        token_suffix:
+          type: string
+          description: >
+            Last 4 characters of the plaintext, for display as `***xxxx`. The
+            plaintext itself is never stored or shown again.
+        label:
+          type: string
+        created_at:
+          type: string
+          description: UTC timestamp, `YYYY-MM-DDTHH:MM:SS.ssssssZ`.
+        last_used_at:
+          type: [string, "null"]
+          description: Coarse (refreshed at most once a minute).
+
+    RelayTokenCreated:
+      allOf:
+        - $ref: '#/components/schemas/RelayTokenView'
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+              description: >
+                Plaintext relay token (`lpt_` prefix). Shown exactly once;
+                only a keyed HMAC-SHA256 hash is stored. Goes in the
+                transparent relay URL path, never in an Authorization header.
+
+    UsageSummaryRow:
+      type: object
+      required: [model, endpoint, requests, cancelled, cost, units]
+      properties:
+        model:
+          type: string
+          description: Public alias.
+        endpoint:
+          type: string
+          description: One of `chat`, `completions`, `embeddings`, `transcription`.
+        requests:
+          type: integer
+        cancelled:
+          type: integer
+          description: How many of those requests were cancelled by the caller.
+        cost:
+          type: [number, "null"]
+          description: >
+            Sum of priced cost. `null` when nothing in the group was priced;
+            unpriced usage is never reported as zero.
+        units:
+          type: object
+          additionalProperties:
+            type: number
+          description: >
+            Per-unit quantity sums keyed by unit (`input_tokens`,
+            `output_tokens`, `cached_input_tokens`, `audio_seconds`).
+        principal:
+          type: string
+          description: >
+            Principal name. Present only in the admin summary
+            (`/admin/v1/usage/summary`).
+
+    UsageSeries:
+      type: object
+      required: [bucket, series]
+      properties:
+        bucket:
+          type: string
+          enum: [hour, day, week, month]
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageSeriesBucket'
+
+    UsageSeriesBucket:
+      type: object
+      required:
+        [start, requests, ok, cancelled, failed, unpriced_requests, cost, units]
+      properties:
+        start:
+          type: string
+          format: date-time
+          description: >
+            Inclusive UTC start of the bucket. Weeks start Monday; the bucket
+            ends where the next one starts.
+        requests:
+          type: integer
+          description: Total; `ok`, `cancelled` and `failed` partition it.
+        ok:
+          type: integer
+        cancelled:
+          type: integer
+        failed:
+          type: integer
+          description: >
+            Non-ok outcomes the caller did not cancel (`upstream_error`,
+            `unreachable`).
+        unpriced_requests:
+          type: integer
+          description: Requests in the bucket that hit a missing price.
+        cost:
+          type: [number, "null"]
+          description: >
+            Sum of priced cost. `null` when nothing in the bucket was priced,
+            including empty buckets; unpriced is never reported as zero.
+        units:
+          type: object
+          additionalProperties:
+            type: number
+          description: Per-unit quantity sums; empty for a bucket with no usage.
+
+    ProviderView:
+      type: object
+      required:
+        - name
+        - wire_format
+        - base_url
+        - has_credential
+        - verify_tls
+        - has_custom_ca
+        - timeout_connect
+        - timeout_read
+        - timeout_write
+        - max_concurrency
+        - enabled
+        - created_at
+      properties:
+        name:
+          type: string
+        wire_format:
+          type: string
+          const: openai
+        base_url:
+          type: string
+          description: Full URL including `/v1`, trailing slash stripped.
+        has_credential:
+          type: boolean
+          description: >
+            Whether an upstream credential is stored. The credential itself is
+            encrypted at rest and never returned by any endpoint.
+        verify_tls:
+          type: boolean
+        has_custom_ca:
+          type: boolean
+        timeout_connect:
+          type: number
+          description: Seconds.
+        timeout_read:
+          type: number
+          description: Seconds.
+        timeout_write:
+          type: number
+          description: Seconds.
+        max_concurrency:
+          type: [integer, "null"]
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+        endpoints:
+          type: object
+          additionalProperties:
+            type: string
+          description: >
+            Per-endpoint URL overrides. Included on create (echo of the
+            request) and on single-provider GET; omitted from list responses.
+
+    ProviderCreateRequest:
+      type: object
+      required: [name, base_url]
+      properties:
+        name:
+          type: string
+          description: Must match `^[a-z0-9][a-z0-9._-]*$`, max 120 chars.
+        wire_format:
+          type: string
+          const: openai
+          default: openai
+        base_url:
+          type: string
+          description: Full http(s) URL including `/v1`.
+        api_key:
+          type: string
+          description: >
+            Upstream credential; optional for unauthenticated upstreams.
+            Stored AES-256-GCM encrypted, sent upstream as `Authorization:
+            Bearer`.
+        verify_tls:
+          type: boolean
+          default: true
+        ca_pem:
+          type: string
+          description: PEM bundle used as the trust root instead of the system pool.
+        timeout_connect:
+          type: number
+          default: 10
+          description: Seconds.
+        timeout_read:
+          type: number
+          default: 300
+          description: Seconds. Also the unary request deadline.
+        timeout_write:
+          type: number
+          default: 30
+          description: Seconds.
+        max_concurrency:
+          type: integer
+          description: Max connections per upstream host; omitted means unlimited.
+        endpoints:
+          type: object
+          additionalProperties:
+            type: string
+          description: >
+            Per-endpoint absolute URL overrides. Keys must be one of `chat`,
+            `completions`, `embeddings`, `transcription`; values full http(s)
+            URLs.
+
+    ProviderPatchRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        base_url:
+          type: string
+        api_key:
+          type: string
+          description: >
+            New upstream credential. An empty string removes the stored
+            credential (same as `remove_credential: true`).
+        remove_credential:
+          type: boolean
+
+    DiscoveredModels:
+      type: object
+      required: [provider, discovered_at, models]
+      properties:
+        provider:
+          type: string
+        discovered_at:
+          type: string
+        models:
+          type: array
+          items:
+            type: object
+            required: [upstream_name, bound_alias]
+            properties:
+              upstream_name:
+                type: string
+              bound_alias:
+                type: [string, "null"]
+                description: Existing alias bound to this upstream model, if any.
+
+    ModelView:
+      type: object
+      required:
+        [alias, provider, upstream_name, capabilities, target, origin,
+         created_at, pricing, pricing_inherited]
+      properties:
+        alias:
+          type: string
+        provider:
+          type: string
+        upstream_name:
+          type: string
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capability'
+        origin:
+          type: string
+          enum: [declared, discovered]
+        created_at:
+          type: string
+        target:
+          type: [string, "null"]
+          description: >
+            The model this one is a name for, or null when it routes to a
+            provider itself. `provider`, `upstream_name` and `capabilities`
+            above are always the resolved ones; for an alias they are the
+            target's.
+        pricing:
+          $ref: '#/components/schemas/ModelPricing'
+        pricing_inherited:
+          type: boolean
+          description: >
+            True when the price in force is not keyed on this name: inherited
+            from the model it points at, or from the upstream model name.
+
+    ModelPricing:
+      type: object
+      description: >
+        Prices per million units, keyed by unit. On a write this is the
+        model's complete price set: a unit left out (or sent as `null`) has no
+        price afterwards, and usage for it is recorded as unpriced, never as
+        zero.
+      additionalProperties:
+        type: [number, "null"]
+        minimum: 0
+      example:
+        input_tokens: 0.4
+        output_tokens: 1.2
+
+    ModelCreateRequest:
+      type: object
+      description: >
+        A model either routes to a provider's model (`provider` +
+        `upstream_name`) or is a name for a model already bound (`target`).
+        Give one or the other, never both.
+      properties:
+        alias:
+          type: string
+          description: >
+            Globally unique public name, `^[A-Za-z0-9][A-Za-z0-9._:/-]*$`, max
+            200 chars. Omitted or empty means the model serves under
+            `upstream_name`; required when `target` is given.
+        provider:
+          type: string
+        upstream_name:
+          type: string
+          description: Model name sent to the upstream, max 200 chars.
+        target:
+          type: string
+          description: >
+            Name of the model this one points at, instead of `provider` and
+            `upstream_name`. It must route to a provider itself (aliases are
+            one hop) and the new model needs its own `alias`. Provider,
+            upstream model, capabilities and prices are inherited.
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capability'
+          default: [chat, chat_stream]
+          description: Ignored for a `target`; capabilities are inherited.
+        origin:
+          type: string
+          enum: [declared, discovered]
+          default: declared
+        pricing:
+          $ref: '#/components/schemas/ModelPricing'
+
+    ModelPatchRequest:
+      type: object
+      properties:
+        alias:
+          type: string
+          description: >
+            Rename the model. The row is kept, so its prices follow the new
+            name and callers only see the name move; 409 `alias_exists` if the
+            new name is already bound.
+        provider:
+          type: string
+          description: Move the model to another registered provider.
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capability'
+        upstream_name:
+          type: string
+        target:
+          type: string
+          description: >
+            Point this model at another model, inheriting its provider,
+            upstream model and capabilities. An empty string turns it back
+            into a binding of its own, which needs `provider` and
+            `upstream_name` in the same call. Sending `provider`,
+            `upstream_name` or `capabilities` for a model that stays an alias
+            is rejected with `invalid_target`.
+        pricing:
+          $ref: '#/components/schemas/ModelPricing'
+
+    Capability:
+      type: string
+      enum: [chat, chat_stream, completions, embeddings, transcription]
+
+    ResolveResult:
+      type: object
+      required: [alias, provider, upstream_name, url, capabilities]
+      properties:
+        alias:
+          type: string
+        provider:
+          type: string
+        upstream_name:
+          type: string
+        url:
+          type: string
+          description: Exact upstream URL the endpoint would call.
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capability'
+
+    Principal:
+      type: object
+      required: [id, name, kind, role]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [user, service]
+        role:
+          type: string
+          enum: [member, admin]
+
+    PrincipalCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Must match `^[a-z0-9][a-z0-9._-]*$`, max 120 chars.
+        kind:
+          type: string
+          enum: [user, service]
+          default: user
+        role:
+          type: string
+          enum: [member, admin]
+          default: member
+
+    PricingFeed:
+      type: object
+      required: [version, entries]
+      properties:
+        version:
+          type: string
+          description: Feed version label; reloading the same version is allowed.
+        entries:
+          type: array
+          items:
+            type: object
+            required: [model, unit]
+            properties:
+              model:
+                type: string
+                description: Public alias or upstream model name (alias wins on lookup).
+              unit:
+                type: string
+                enum: [input_tokens, output_tokens, cached_input_tokens, audio_seconds]
+              price_per_unit:
+                type: number
+              price_per_million:
+                type: number
+                description: >
+                  Convenience form, divided by 1,000,000 on load. Exactly one
+                  of `price_per_unit` or `price_per_million` is required.
+
+    AdminEvent:
+      type: object
+      required: [ts, actor_principal_id, action, target_kind, target_ref]
+      properties:
+        ts:
+          type: string
+        actor_principal_id:
+          type: string
+        action:
+          type: string
+          description: >
+            One of `provider.create`, `provider.update`, `provider.delete`,
+            `model.create`, `model.update`, `model.delete`,
+            `principal.create`, `key.create`, `key.delete`, `pricing.load`.
+        target_kind:
+          type: string
+          enum: [provider, model, principal, api_key, pricing_feed]
+        target_ref:
+          type: string
+
+  responses:
+    Unauthorized:
+      description: >
+        No credentials (`missing_api_key`) or an unknown key
+        (`invalid_api_key`; deleted keys are indistinguishable from garbage).
+      headers:
+        x-llmproxy-error-source:
+          $ref: '#/components/headers/XLLMProxyErrorSource'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ForbiddenAdmin:
+      description: >
+        `admin_required`: the caller's principal does not have the admin role.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    InternalError:
+      description: Proxy-side failure (`internal_error`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    RequestTooLarge:
+      description: Body exceeds the limit (`request_too_large`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+paths:
+  /healthz:
+    get:
+      tags: [operational]
+      summary: Liveness check
+      security: []
+      responses:
+        '200':
+          description: Always `{"status":"ok"}` while the process serves traffic.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+
+  /metrics:
+    get:
+      tags: [operational]
+      summary: Prometheus text metrics
+      description: >
+        Counters only, aggregate labels only (endpoint, provider, model alias,
+        outcome, unit; never per-principal): `llmproxy_requests_total`,
+        `llmproxy_request_seconds_sum`, `llmproxy_request_seconds_count`,
+        `llmproxy_usage_units_total`, `llmproxy_unpriced_units_total`.
+      security: []
+      responses:
+        '200':
+          description: Prometheus text exposition format 0.0.4.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /:
+    get:
+      tags: [operational]
+      summary: Built-in web UI
+      description: >
+        The embedded React app (Greyhaven design system), served with its
+        assets from the binary. Sign-in via SSO (when configured) and/or the
+        admin password. Self-service key management and own-usage view for
+        everyone; provider and model management, usage by user and a request
+        metadata log for admins. The app drives the JSON endpoints in this
+        spec with the session cookie; unknown GET paths also serve the app
+        (SPA fallback).
+      security: []
+      responses:
+        '200':
+          description: HTML page.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Current identity and available login methods
+      description: >
+        Accepts a session cookie or an API key; an anonymous call is a normal
+        200 with `authenticated: false`, so the UI's login screen can render
+        the right options.
+      security: []
+      responses:
+        '200':
+          description: Identity view.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authenticated:
+                    type: boolean
+                  name:
+                    type: string
+                  role:
+                    type: string
+                    enum: [member, admin]
+                  sso_enabled:
+                    type: boolean
+                  password_enabled:
+                    type: boolean
+                required: [authenticated, sso_enabled, password_enabled]
+
+  /auth/password:
+    post:
+      tags: [auth]
+      summary: Admin password login
+      description: >
+        Signs the local admin principal in with the password from
+        `LLMPROXY_ADMIN_PASSWORD` or the generated password file, and sets the
+        session cookie. Available in local and SSO mode unless
+        `LLMPROXY_ADMIN_PASSWORD_DISABLED` is set. Compared in constant time;
+        a failed attempt is delayed 400 ms. Requests with a mismatching
+        `Origin` header are rejected.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+              required: [password]
+      responses:
+        '200':
+          description: Session cookie set.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  role:
+                    type: string
+        '401':
+          description: '`wrong_password`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: '`cross_origin_rejected`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: '`password_login_disabled`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /auth/login:
+    get:
+      tags: [auth]
+      summary: Start the SSO login flow
+      description: >
+        Sets a short-lived signed state cookie and redirects to the identity
+        provider's authorization endpoint.
+      security: []
+      parameters:
+        - name: retry
+          in: query
+          schema:
+            type: string
+            enum: ['1']
+          description: >
+            Set by the callback's automatic retry after a state mismatch;
+            marks the new state so the retry happens at most once.
+      responses:
+        '302':
+          description: Redirect to the IdP authorization endpoint.
+        '404':
+          description: '`sso_not_configured`: the proxy runs in local (no-SSO) mode.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /auth/callback:
+    get:
+      tags: [auth]
+      summary: OIDC redirect target
+      description: >
+        Validates the state cookie, exchanges the authorization code, fetches
+        userinfo, applies the required-group gate and group-to-role mapping,
+        upserts the principal (keyed on the IdP `sub`) and issues the session
+        cookie.
+      security: []
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          schema:
+            type: string
+          description: IdP-reported error code, if the user denied consent.
+      responses:
+        '303':
+          description: >
+            Login succeeded (session cookie set, redirect to `/`), or the
+            state did not match the cookie and the login is retried once via
+            `/auth/login?retry=1` (a parallel login in another tab overwrites
+            the single state cookie; the retried state is marked so a second
+            mismatch reports `sso_state_mismatch` instead of looping).
+        '400':
+          description: >
+            `sso_denied` (IdP reported an error), `sso_state_mismatch` (state
+            cookie missing or mismatched after a retry) or `sso_code_missing`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: '`sso_group_required`: account is not in `LLMPROXY_OIDC_REQUIRED_GROUP`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: '`sso_not_configured`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '502':
+          description: '`sso_exchange_failed` or `sso_userinfo_failed`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/logout:
+    get:
+      tags: [auth]
+      summary: Log out
+      description: >
+        Deletes the server-side session and clears the cookie, then redirects
+        to `/`. Deletion is immediate: a copied token dies with the session
+        row.
+      security: []
+      responses:
+        '303':
+          description: Redirect to `/`.
+
+  /v1/models:
+    get:
+      tags: [openai]
+      summary: List model aliases
+      description: >
+        OpenAI-shaped model list containing the aliases whose provider is
+        enabled, sorted by alias.
+      parameters:
+        - name: endpoint
+          in: query
+          description: >
+            Filter to aliases whose capability set contains this capability.
+          schema:
+            $ref: '#/components/schemas/Capability'
+      responses:
+        '200':
+          description: Model list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelList'
+        '400':
+          description: '`invalid_endpoint`: unknown capability value.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/chat/completions:
+    post:
+      tags: [openai]
+      summary: Chat completions (unary or SSE streaming)
+      description: >
+        Requires the `chat` capability; streamed requests additionally require
+        `chat_stream`. Successful responses and upstream errors pass through
+        with the upstream's status code and body. Proxy error codes:
+        `invalid_json`, `model_required`, `model_not_found` (404),
+        `endpoint_not_supported` (400), `request_too_large` (413),
+        `provider_unreachable` (502), `internal_error` (500).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProxyRequestBody'
+      responses:
+        '200':
+          description: >
+            Upstream response, passed through. `text/event-stream` when
+            `stream: true`, otherwise the upstream's JSON body.
+          headers:
+            x-llmproxy-provider:
+              $ref: '#/components/headers/XLLMProxyProvider'
+            x-llmproxy-model:
+              $ref: '#/components/headers/XLLMProxyModel'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          description: >
+            `invalid_json`, `model_required` (param `model`) or
+            `endpoint_not_supported` (param `model`; message names the missing
+            and supported capabilities).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: >
+            `model_not_found` (param `model`): the alias does not exist, is
+            or its provider is disabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '502':
+          description: >
+            `provider_unreachable`: connecting to or reading from the upstream
+            failed (message names the failure class: timeout,
+            connection_error, response_too_large).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        default:
+          description: >
+            Upstream error (status >= 400) relayed unchanged, with
+            `x-llmproxy-error-source: upstream`.
+          headers:
+            x-llmproxy-provider:
+              $ref: '#/components/headers/XLLMProxyProvider'
+            x-llmproxy-model:
+              $ref: '#/components/headers/XLLMProxyModel'
+            x-llmproxy-error-source:
+              $ref: '#/components/headers/XLLMProxyErrorSource'
+
+  /v1/completions:
+    post:
+      tags: [openai]
+      summary: Legacy text completions (unary or SSE streaming)
+      description: >
+        Requires the `completions` capability. Same passthrough behavior and
+        error codes as `/v1/chat/completions`; note that `stream: true` does
+        not require an extra capability here (only chat has a separate
+        `chat_stream` capability).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProxyRequestBody'
+      responses:
+        '200':
+          description: Upstream response, passed through.
+          headers:
+            x-llmproxy-provider:
+              $ref: '#/components/headers/XLLMProxyProvider'
+            x-llmproxy-model:
+              $ref: '#/components/headers/XLLMProxyModel'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          description: '`invalid_json`, `model_required` or `endpoint_not_supported`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: '`model_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '502':
+          description: '`provider_unreachable`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        default:
+          description: Upstream error relayed unchanged.
+          headers:
+            x-llmproxy-error-source:
+              $ref: '#/components/headers/XLLMProxyErrorSource'
+
+  /v1/embeddings:
+    post:
+      tags: [openai]
+      summary: Embeddings
+      description: >
+        Requires the `embeddings` capability. Always unary (the `stream` field
+        is ignored). When `input` is a JSON array its length is capped at
+        `LLMPROXY_MAX_EMBEDDING_BATCH` (default 2048).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProxyRequestBody'
+      responses:
+        '200':
+          description: Upstream response, passed through.
+          headers:
+            x-llmproxy-provider:
+              $ref: '#/components/headers/XLLMProxyProvider'
+            x-llmproxy-model:
+              $ref: '#/components/headers/XLLMProxyModel'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          description: >
+            `invalid_json`, `model_required`, `endpoint_not_supported` or
+            `embedding_batch_too_large` (param `input`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: '`model_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '502':
+          description: '`provider_unreachable`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        default:
+          description: Upstream error relayed unchanged.
+          headers:
+            x-llmproxy-error-source:
+              $ref: '#/components/headers/XLLMProxyErrorSource'
+
+  /my/keys:
+    post:
+      tags: [self-service]
+      summary: Mint a key for the calling principal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  maxLength: 120
+      responses:
+        '201':
+          description: Key created; the plaintext appears only in this response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyCreated'
+        '400':
+          description: '`invalid_json` or `invalid_label` (over 120 characters).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: >
+            `cross_origin_rejected`: session-authenticated mutation with a
+            mismatching `Origin` header.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [self-service]
+      summary: List own keys (metadata only)
+      description: Returns up to 500 keys; not paginated.
+      responses:
+        '200':
+          description: Key list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [keys]
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/KeyView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /my/relay-tokens:
+    post:
+      tags: [self-service]
+      summary: Mint a relay token for the calling principal
+      description: >
+        A relay token attributes transparent-relay traffic to your principal.
+        It is not an API key: it cannot authenticate against any other
+        endpoint. Put it in the relay URL path, e.g.
+        `ANTHROPIC_BASE_URL=https://proxy/transparent/anthropic/<token>`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  maxLength: 120
+      responses:
+        '201':
+          description: >
+            Relay token created; the plaintext appears only in this response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelayTokenCreated'
+        '400':
+          description: '`invalid_json` or `invalid_label` (over 120 characters).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: >
+            `cross_origin_rejected`: session-authenticated mutation with a
+            mismatching `Origin` header.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [self-service]
+      summary: List own relay tokens (metadata only)
+      description: Returns up to 500 tokens; not paginated.
+      responses:
+        '200':
+          description: Relay token list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [relay_tokens]
+                properties:
+                  relay_tokens:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RelayTokenView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /my/relay-tokens/{id}:
+    delete:
+      tags: [self-service]
+      summary: Delete one of your own relay tokens
+      description: >
+        Deletion is the revocation mechanism: the row is removed and the token
+        stops relaying immediately (404 `unknown_relay_token`). Usage history
+        keeps the token id.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: '`cross_origin_rejected` (session auth, bad `Origin`).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: '`relay_token_not_found`: no such token on your principal.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /transparent/anthropic/{token}/{path}:
+    description: >
+      Transparent Anthropic relay: every method on every sub-path is forwarded
+      verbatim to the configured Anthropic base URL (see the `transparent`
+      tag). Not a JSON API of the proxy's own; the request and response are
+      whatever the Anthropic API sends. Proxy-generated errors: 404
+      `unknown_relay_token`, 502 `provider_unreachable`, 404
+      `transparent_relay_disabled`.
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Relay token (`lpt_` prefix), minted under /my/relay-tokens.
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Anthropic API path, e.g. `v1/messages`.
+
+  /my/keys/{id}:
+    delete:
+      tags: [self-service]
+      summary: Delete one of your own keys
+      description: >
+        Deletion is the revocation mechanism: the row is removed and the key
+        stops authenticating immediately. Usage history keeps the key id.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyDeleted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: '`cross_origin_rejected` (session auth, bad `Origin`).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: '`key_not_found`: no such key on your principal.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /my/usage:
+    get:
+      tags: [self-service]
+      summary: Own usage summary
+      description: >
+        Aggregated by (model alias, endpoint) with request counts, cancelled
+        counts, per-unit quantity sums and cost (null when unpriced).
+      parameters:
+        - $ref: '#/components/parameters/since'
+        - $ref: '#/components/parameters/until'
+      responses:
+        '200':
+          description: Usage rows sorted by alias then endpoint.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [usage]
+                properties:
+                  usage:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UsageSummaryRow'
+        '400':
+          description: '`invalid_date`: `since` or `until` is not ISO 8601.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /my/usage/series:
+    get:
+      tags: [self-service]
+      summary: Own usage over time
+      description: >
+        The same accounting bucketed by time. Buckets are UTC (weeks start
+        Monday) and the range is gap-filled, so quiet periods come back as
+        empty buckets rather than as holes and the series can be plotted
+        directly. Without `since` the series starts at the first recorded
+        event.
+      parameters:
+        - $ref: '#/components/parameters/bucket'
+        - $ref: '#/components/parameters/since'
+        - $ref: '#/components/parameters/until'
+      responses:
+        '200':
+          description: Gap-filled series, oldest bucket first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSeries'
+        '400':
+          description: >
+            `invalid_bucket`, `invalid_date`, or `range_too_large` when the
+            window needs more than 1000 buckets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/providers:
+    post:
+      tags: [admin]
+      summary: Register a provider
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderCreateRequest'
+      responses:
+        '201':
+          description: Provider created (includes the `endpoints` overrides map).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderView'
+        '400':
+          description: >
+            `invalid_json`, `invalid_name`, `invalid_wire_format`,
+            `invalid_base_url`, `invalid_endpoint` (unknown override key) or
+            `invalid_override` (override value not an http(s) URL).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '409':
+          description: '`provider_exists`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [admin]
+      summary: List providers
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: Paginated provider list (without `endpoints`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [providers, limit, offset]
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProviderView'
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/providers/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [admin]
+      summary: Get one provider (with endpoint overrides)
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      responses:
+        '200':
+          description: Provider with its `endpoints` overrides map.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`provider_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [admin]
+      summary: Update a provider (enable/disable, base URL, credential)
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderPatchRequest'
+      responses:
+        '200':
+          description: Updated provider (without `endpoints`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderView'
+        '400':
+          description: '`invalid_json` or `invalid_base_url`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`provider_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [admin]
+      summary: Delete a provider (cascades its bindings and overrides)
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted:
+                    type: string
+                    description: Provider name.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`provider_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/providers/{name}/discover:
+    get:
+      tags: [admin]
+      summary: Ask the upstream what models it serves
+      description: >
+        Calls the provider's `/models` endpoint (15 second timeout) and
+        annotates each upstream model with any existing bound alias.
+        Read-only; never creates or exposes anything.
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sorted upstream model names with binding status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoveredModels'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`provider_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '502':
+          description: >
+            `provider_unreachable` (request failed) or `discovery_failed`
+            (upstream returned an error status or invalid JSON).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/models:
+    post:
+      tags: [admin]
+      summary: Bind an upstream model to a public alias
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelCreateRequest'
+      responses:
+        '201':
+          description: Binding created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelView'
+        '400':
+          description: >
+            `invalid_json`, `invalid_alias`, `invalid_upstream_name`,
+            `invalid_origin`, `invalid_capabilities`, or `invalid_target`
+            (both routing forms given, or a target that is itself an alias).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`provider_not_found`, or `model_not_found` for a target that does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: '`alias_exists`: aliases are globally unique.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [admin]
+      summary: List model bindings
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      parameters:
+        - name: provider
+          in: query
+          description: Filter by provider name.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: Paginated binding list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [models, limit, offset]
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelView'
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/models/{alias}:
+    parameters:
+      - name: alias
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      tags: [admin]
+      summary: Update a binding (name, provider, capabilities, upstream name, prices)
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelPatchRequest'
+      responses:
+        '200':
+          description: Updated binding.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelView'
+        '400':
+          description: >
+            `invalid_json`, `invalid_alias`, `invalid_capabilities`, or
+            `invalid_target` (editing what an alias inherits, or a target that
+            is itself an alias).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`model_not_found` or `provider_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: '`alias_exists`: the new name is already bound.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [admin]
+      summary: Delete a binding
+      description: >
+        Refused while other models point at this one, so an alias can never be
+        left dangling.
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted:
+                    type: string
+                    description: Alias.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '409':
+          description: '`model_in_use`: other models point at this one; the message lists them.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: '`model_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/resolve:
+    get:
+      tags: [admin]
+      summary: Dry-run alias resolution
+      description: >
+        Resolves an alias exactly as the data plane would, without calling the
+        upstream. Uses the same short-lived catalog cache.
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      parameters:
+        - name: model
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: endpoint
+          in: query
+          description: Defaults to `chat`.
+          schema:
+            type: string
+            enum: [chat, completions, embeddings, transcription]
+            default: chat
+        - name: stream
+          in: query
+          description: '`true` additionally requires `chat_stream` for the chat endpoint.'
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Resolution result with the exact upstream URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveResult'
+        '400':
+          description: '`endpoint_not_supported`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`model_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/principals:
+    post:
+      tags: [admin]
+      summary: Create a user or service principal
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrincipalCreateRequest'
+      responses:
+        '201':
+          description: Principal created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Principal'
+        '400':
+          description: '`invalid_json`, `invalid_name` or `invalid_principal`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '409':
+          description: '`principal_exists`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [admin]
+      summary: List principals
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: Paginated principal list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [principals, limit, offset]
+                properties:
+                  principals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Principal'
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/principals/{id}/revoke-sessions:
+    post:
+      tags: [admin]
+      summary: Delete the principal's browser sessions
+      description: >-
+        Deletes every browser session of the principal, forcing a fresh login
+        before their natural TTL. API keys are unaffected. Useful after
+        removing a user at the identity provider, since group membership is
+        only re-reconciled at login. Signed-cookie sessions from releases
+        before the session table are swept by a cutoff timestamp instead.
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Principal id.
+      responses:
+        '200':
+          description: Sessions deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked, deleted_sessions]
+                properties:
+                  revoked:
+                    type: string
+                    description: Principal id.
+                  deleted_sessions:
+                    type: integer
+                    description: Number of session rows deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`principal_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/keys:
+    post:
+      tags: [admin]
+      summary: Mint a key for any principal
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [principal]
+              properties:
+                principal:
+                  type: string
+                  description: Principal name.
+                label:
+                  type: string
+      responses:
+        '201':
+          description: Key created; plaintext shown once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminKeyCreated'
+        '400':
+          description: '`invalid_json`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`principal_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [admin]
+      summary: List keys across principals
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      parameters:
+        - name: principal
+          in: query
+          description: Filter by principal name.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: Paginated key list (metadata only; each row carries `principal`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [keys, limit, offset]
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/KeyView'
+                        - type: object
+                          required: [principal]
+                          properties:
+                            principal:
+                              type: string
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/keys/{id}:
+    delete:
+      tags: [admin]
+      summary: Delete any key
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyDeleted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`key_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/pricing:
+    post:
+      tags: [admin]
+      summary: Load a pricing feed
+      description: >
+        Replaces the active feed (prior feeds are deactivated, not deleted).
+        Body limit is 8 MiB. Takes effect immediately for new usage events;
+        already-recorded events are not repriced.
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PricingFeed'
+      responses:
+        '200':
+          description: Feed stored and activated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, count]
+                properties:
+                  version:
+                    type: string
+                  count:
+                    type: integer
+        '400':
+          description: >
+            `invalid_pricing_feed`: not JSON, missing `version`, an entry
+            without `model`/valid `unit`, or an entry with neither
+            `price_per_unit` nor `price_per_million`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [admin]
+      summary: Active pricing feed status
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      responses:
+        '200':
+          description: >
+            Version (`null` if no feed loaded), entry count and the entries
+            themselves with per-million prices (what the UI's Pricing tab
+            round-trips).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, count, entries]
+                properties:
+                  version:
+                    type: [string, 'null']
+                  count:
+                    type: integer
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      required: [model, unit, price_per_million]
+                      properties:
+                        model:
+                          type: string
+                        unit:
+                          type: string
+                        price_per_million:
+                          type: number
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+
+  /admin/v1/usage/summary:
+    get:
+      tags: [admin]
+      summary: Usage summary across principals
+      description: >
+        Same aggregation as `/my/usage` plus a `principal` name on every row.
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      parameters:
+        - $ref: '#/components/parameters/since'
+        - $ref: '#/components/parameters/until'
+        - name: principal
+          in: query
+          description: Restrict to one principal by name.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Usage rows.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [usage]
+                properties:
+                  usage:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UsageSummaryRow'
+        '400':
+          description: '`invalid_date`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`principal_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/usage/series:
+    get:
+      tags: [admin]
+      summary: Usage over time across principals
+      description: >
+        Same bucketing as `/my/usage/series`, over everyone's usage.
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      parameters:
+        - $ref: '#/components/parameters/bucket'
+        - $ref: '#/components/parameters/since'
+        - $ref: '#/components/parameters/until'
+        - name: principal
+          in: query
+          description: Restrict to one principal by name.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Gap-filled series.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSeries'
+        '400':
+          description: '`invalid_bucket`, `invalid_date` or `range_too_large`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`principal_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/requests:
+    get:
+      tags: [admin]
+      summary: Recent requests (metadata only)
+      description: >
+        The newest usage events with per-unit quantities and resolved
+        principal names: who called which model on which endpoint, the
+        outcome, token counts and cost. Request and response content is never
+        stored, so there is none to return.
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+        - sessionCookie: []
+      parameters:
+        - name: limit
+          in: query
+          description: Number of events, 1 to 500 (default 50).
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Newest events first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requests, limit]
+                properties:
+                  requests:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ts:
+                          type: string
+                        principal:
+                          type: string
+                        model:
+                          type: string
+                        endpoint:
+                          type: string
+                        outcome:
+                          type: string
+                        status_code:
+                          type: [integer, 'null']
+                        streamed:
+                          type: boolean
+                        cancelled:
+                          type: boolean
+                        cost:
+                          type: [number, 'null']
+                        unpriced:
+                          type: boolean
+                        duration_ms:
+                          type: integer
+                        units:
+                          type: object
+                          additionalProperties:
+                            type: number
+                  limit:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/v1/events:
+    get:
+      tags: [admin]
+      summary: Admin audit trail (metadata only)
+      description: >
+        Every admin mutation writes one event in the same transaction. Events
+        carry identifiers only, never request or response content.
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: Paginated event list, most recent first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, limit, offset]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminEvent'
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /model/new:
+    post:
+      tags: [compatibility]
+      summary: Register a model deployment (compatibility shape)
+      description: >
+        Accepts the deployment payload used by existing proxy management
+        tooling; unknown fields are ignored.
+        Creates or reuses a provider for `litellm_params.api_base` (the name
+        is derived from the host; a supplied `api_key` becomes the provider
+        credential) and binds `model_name` as an exposed alias for
+        `litellm_params.model`. `model_info.mode` of `embedding` or
+        `completion` selects those capabilities; the default is chat plus
+        chat_stream. Re-registering an identical deployment is an idempotent
+        200; a different deployment under an existing `model_name` is a 409
+        `alias_exists` (aliases are globally unique, there is no
+        load-balancing pool).
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model_name, litellm_params]
+              additionalProperties: true
+              properties:
+                model_name:
+                  type: string
+                  description: Public alias callers will use.
+                litellm_params:
+                  type: object
+                  required: [model, api_base]
+                  additionalProperties: true
+                  properties:
+                    model:
+                      type: string
+                      description: Upstream model name.
+                    api_base:
+                      type: string
+                      description: Upstream base URL including /v1.
+                    api_key:
+                      type: string
+                      description: Upstream API key, stored encrypted on the provider.
+                model_info:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Deployment view (also returned for an idempotent re-register).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelDeployment'
+        '400':
+          description: '`invalid_alias`, `invalid_upstream_name` or `invalid_base_url`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '409':
+          description: '`alias_exists`: bound to a different deployment.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /model/info:
+    get:
+      tags: [compatibility]
+      summary: List model deployments (compatibility shape)
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: All bindings as deployments.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelDeployment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /model/delete:
+    post:
+      tags: [compatibility]
+      summary: Delete a model deployment by id (compatibility shape)
+      security:
+        - bearerApiKey: []
+        - apiKeyHeader: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: string
+                  description: The `model_info.id` from `/model/info`.
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, model_name]
+                properties:
+                  deleted:
+                    type: string
+                  model_name:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`model_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
