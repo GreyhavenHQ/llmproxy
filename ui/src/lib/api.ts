@@ -55,6 +55,16 @@ export interface KeyInfo {
   created_at: string
   last_used_at: string | null
   key?: string // present only in the creation response
+  principal?: string // present only on the admin endpoints
+}
+
+// A principal is anything that can own keys and usage: a person (kind
+// "user") or a service account (kind "service").
+export interface Principal {
+  id: string
+  name: string
+  kind: string
+  role: string
 }
 
 export interface RelayTokenInfo {

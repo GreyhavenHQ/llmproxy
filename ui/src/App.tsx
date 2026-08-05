@@ -7,6 +7,7 @@ import { Usage } from '@/pages/Usage'
 import { Providers } from '@/pages/Providers'
 import { Models } from '@/pages/Models'
 import { Requests } from '@/pages/Requests'
+import { Users } from '@/pages/Users'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -82,35 +83,44 @@ function ThemeToggle() {
 // The tab rides in the URL path (/usage, /models, ...) so reloads, copied
 // links and back/forward all land on the right tab. The server serves
 // index.html for any non-file GET, so these paths resolve without a router.
-function tabFromLocation(allowed: string[]): string {
+// The admin pages (/providers, /models, /users) share one top-level "Admin"
+// tab with a sub-nav, keeping the member-facing nav identical for everyone.
+const ADMIN_SUBS = ['providers', 'models', 'users']
+
+function tabsFromLocation(isAdmin: boolean): { tab: string; sub: string } {
   let seg = window.location.pathname.replace(/^\/+/, '').split('/')[0]
   if (seg === 'activity') seg = 'requests' // pre-rename bookmarks
-  return allowed.includes(seg) ? seg : 'usage'
+  if (isAdmin && ADMIN_SUBS.includes(seg)) {
+    return { tab: 'admin', sub: seg }
+  }
+  return {
+    tab: ['usage', 'requests', 'keys'].includes(seg) ? seg : 'usage',
+    sub: 'providers',
+  }
 }
 
 function Shell({ me }: { me: Me }) {
   const isAdmin = me.role === 'admin'
-  const allowedTabs = isAdmin
-    ? ['usage', 'requests', 'keys', 'providers', 'models']
-    : ['usage', 'requests', 'keys']
-  const [tab, setTab] = useState(() => tabFromLocation(allowedTabs))
+  const [nav, setNav] = useState(() => tabsFromLocation(isAdmin))
 
   useEffect(() => {
-    const onPop = () => setTab(tabFromLocation(allowedTabs))
+    const onPop = () => setNav(tabsFromLocation(isAdmin))
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin])
 
-  const navigate = (next: string) => {
-    setTab(next)
-    if (tabFromLocation(allowedTabs) !== next) {
-      window.history.pushState(null, '', '/' + next)
+  const push = (next: { tab: string; sub: string }) => {
+    setNav(next)
+    const path = '/' + (next.tab === 'admin' ? next.sub : next.tab)
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, '', path)
     }
   }
+  const navigate = (tab: string) => push({ ...nav, tab })
+  const navigateSub = (sub: string) => push({ tab: 'admin', sub })
 
   return (
-    <Tabs value={tab} onValueChange={navigate}>
+    <Tabs value={nav.tab} onValueChange={navigate}>
       <header className="border-b bg-card">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
           <div className="flex items-center gap-2">
@@ -121,8 +131,7 @@ function Shell({ me }: { me: Me }) {
             <TabsTrigger value="usage">Usage</TabsTrigger>
             <TabsTrigger value="requests">Requests</TabsTrigger>
             <TabsTrigger value="keys">API keys</TabsTrigger>
-            {isAdmin && <TabsTrigger value="providers">Providers</TabsTrigger>}
-            {isAdmin && <TabsTrigger value="models">Models</TabsTrigger>}
+            {isAdmin && <TabsTrigger value="admin">Admin</TabsTrigger>}
           </TabsList>
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
@@ -160,14 +169,24 @@ function Shell({ me }: { me: Me }) {
           <Keys />
         </TabsContent>
         {isAdmin && (
-          <>
-            <TabsContent value="providers">
-              <Providers />
-            </TabsContent>
-            <TabsContent value="models">
-              <Models />
-            </TabsContent>
-          </>
+          <TabsContent value="admin">
+            <Tabs value={nav.sub} onValueChange={navigateSub} className="gap-6">
+              <TabsList>
+                <TabsTrigger value="providers">Providers</TabsTrigger>
+                <TabsTrigger value="models">Models</TabsTrigger>
+                <TabsTrigger value="users">Users</TabsTrigger>
+              </TabsList>
+              <TabsContent value="providers">
+                <Providers />
+              </TabsContent>
+              <TabsContent value="models">
+                <Models />
+              </TabsContent>
+              <TabsContent value="users">
+                <Users />
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
         )}
       </main>
     </Tabs>
