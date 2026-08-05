@@ -59,7 +59,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ChartPie, ChartBar, RefreshCw, TableProperties, Tags } from 'lucide-react'
+import { ChartPie, ChartBar, FilterX, RefreshCw, TableProperties, Tags, X } from 'lucide-react'
 
 type Bucket = 'hour' | 'day' | 'week' | 'month'
 
@@ -193,19 +193,34 @@ function FilterSelect({
   allLabel: string
 }) {
   return (
-    <Select value={value || ALL} onValueChange={(v) => onChange(v === ALL ? '' : v)}>
-      <SelectTrigger className="w-44" aria-label={label}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={ALL}>{allLabel}</SelectItem>
-        {options.map((name) => (
-          <SelectItem key={name} value={name}>
-            {name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="relative">
+      <Select value={value || ALL} onValueChange={(v) => onChange(v === ALL ? '' : v)}>
+        {/* Room for the clear button between the value and the chevron. */}
+        <SelectTrigger className={value ? 'w-44 pr-12' : 'w-44'} aria-label={label}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>{allLabel}</SelectItem>
+          {options.map((name) => (
+            <SelectItem key={name} value={name}>
+              {name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {value && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Clear ${label.toLowerCase()} filter`}
+          title={`Clear ${label.toLowerCase()} filter`}
+          className="absolute top-1/2 right-7 size-6 -translate-y-1/2"
+          onClick={() => onChange('')}
+        >
+          <X className="size-3.5" />
+        </Button>
+      )}
+    </div>
   )
 }
 
@@ -481,6 +496,21 @@ export function UsageDashboard() {
           options={options.clients}
           allLabel="All clients"
         />
+        {(principal || provider || model || client) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setPrincipal('')
+              setProvider('')
+              setModel('')
+              setClient('')
+            }}
+          >
+            <FilterX />
+            Clear filters
+          </Button>
+        )}
         <Button
           variant="outline"
           size="icon-sm"
