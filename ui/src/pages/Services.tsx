@@ -114,7 +114,9 @@ export function Services() {
     <Card>
       <CardHeader>
         <CardTitle className="font-serif">Services</CardTitle>
-        <CardDescription>One key per service, shown once.</CardDescription>
+        <CardDescription>
+          API keys for machines and shared tools rather than people.
+        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <form onSubmit={create} className="flex flex-wrap items-center gap-2">

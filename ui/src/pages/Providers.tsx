@@ -130,8 +130,7 @@ export function Providers() {
           <CardTitle className="font-serif">Register a provider</CardTitle>
           <CardDescription>
             An upstream OpenAI-compatible endpoint (vLLM, SGLang, OpenAI, ...).
-            The base URL includes <code className="font-mono">/v1</code>. The
-            upstream key is stored encrypted and never shown again.
+            The base URL includes <code className="font-mono">/v1</code>.
           </CardDescription>
         </CardHeader>
         <CardContent>

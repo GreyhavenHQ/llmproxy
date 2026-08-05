@@ -56,7 +56,6 @@ export function AllKeys() {
     <Card>
       <CardHeader>
         <CardTitle className="font-serif">All keys</CardTitle>
-        <CardDescription>Every key, every owner.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <Input
