@@ -40,6 +40,10 @@ type Server struct {
 	// separate from the provider pool because there is no provider row.
 	transparent *http.Client
 
+	// webfetch backs the playground's web_fetch tool; its dialer refuses
+	// non-public addresses (see webfetch.go).
+	webfetch *http.Client
+
 	sso          *oidc.Client
 	sessionKey   []byte
 	cookieSecure bool
@@ -69,6 +73,7 @@ func New(cfg config.Config, st *store.Store, secret []byte) *Server {
 		cookieSecure: strings.HasPrefix(cfg.OIDCRedirectURL, "https://"),
 		publicHost:   hostOf(cfg.OIDCRedirectURL),
 		transparent:  newTransparentClient(),
+		webfetch:     newWebFetchClient(false),
 	}
 	s.pricing.Store(pricing.Empty())
 	return s
@@ -281,6 +286,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /my/relay-tokens", s.withAuth(s.handleMyRelayTokenCreate))
 	mux.Handle("GET /my/relay-tokens", s.withAuth(s.handleMyRelayTokensList))
 	mux.Handle("DELETE /my/relay-tokens/{id}", s.withAuth(s.handleMyRelayTokenDelete))
+	mux.Handle("POST /my/webfetch", s.withAuth(s.handleMyWebFetch))
 	mux.Handle("GET /my/usage", s.withAuth(s.handleMyUsage))
 	mux.Handle("GET /my/usage/series", s.withAuth(s.handleMyUsageSeries))
 

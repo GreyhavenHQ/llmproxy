@@ -10,6 +10,7 @@ import { Requests } from '@/pages/Requests'
 import { Users } from '@/pages/Users'
 import { Services } from '@/pages/Services'
 import { AllKeys } from '@/pages/AllKeys'
+import { Playground } from '@/pages/Playground'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -96,7 +97,7 @@ function tabsFromLocation(isAdmin: boolean): { tab: string; sub: string } {
     return { tab: 'admin', sub: seg }
   }
   return {
-    tab: ['usage', 'requests', 'keys'].includes(seg) ? seg : 'usage',
+    tab: ['usage', 'requests', 'keys', 'playground'].includes(seg) ? seg : 'usage',
     sub: 'providers',
   }
 }
@@ -133,6 +134,7 @@ function Shell({ me }: { me: Me }) {
             <TabsTrigger value="usage">Usage</TabsTrigger>
             <TabsTrigger value="requests">Requests</TabsTrigger>
             <TabsTrigger value="keys">API keys</TabsTrigger>
+            <TabsTrigger value="playground">Playground</TabsTrigger>
             {isAdmin && <TabsTrigger value="admin">Admin</TabsTrigger>}
           </TabsList>
           <div className="ml-auto flex items-center gap-1">
@@ -169,6 +171,10 @@ function Shell({ me }: { me: Me }) {
         </TabsContent>
         <TabsContent value="keys">
           <Keys />
+        </TabsContent>
+        {/* forceMount so switching tabs does not wipe the (unsaved) chat. */}
+        <TabsContent value="playground" forceMount className="data-[state=inactive]:hidden">
+          <Playground />
         </TabsContent>
         {isAdmin && (
           <TabsContent value="admin">
