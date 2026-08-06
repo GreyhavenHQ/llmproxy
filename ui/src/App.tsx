@@ -164,7 +164,7 @@ function Shell({ me }: { me: Me }) {
           main column to its content and every tab would be a different width. */}
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
         <TabsContent value="usage">
-          <Usage />
+          <Usage ssoEnabled={me.sso_enabled} />
         </TabsContent>
         <TabsContent value="requests">
           <Requests />

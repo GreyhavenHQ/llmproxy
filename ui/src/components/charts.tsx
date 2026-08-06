@@ -334,6 +334,14 @@ export function foldDonut<T>(
 
 function arcPath(cx: number, cy: number, r0: number, r1: number, a0: number, a1: number): string {
   const p = (r: number, a: number) => `${cx + r * Math.sin(a)},${cy - r * Math.cos(a)}`
+  // A slice spanning the whole circle starts and ends on the same point,
+  // which SVG draws as nothing. Draw the full annulus instead: two circles
+  // wound in opposite directions so the nonzero fill rule keeps the hole.
+  if (a1 - a0 >= Math.PI * 2 - 1e-9) {
+    const ring = (r: number, sweep: 0 | 1) =>
+      `M${cx},${cy - r} A${r},${r} 0 1 ${sweep} ${cx},${cy + r} A${r},${r} 0 1 ${sweep} ${cx},${cy - r} Z`
+    return `${ring(r0, 1)} ${ring(r1, 0)}`
+  }
   const large = a1 - a0 > Math.PI ? 1 : 0
   return (
     `M${p(r0, a0)} A${r0},${r0} 0 ${large} 1 ${p(r0, a1)} ` +

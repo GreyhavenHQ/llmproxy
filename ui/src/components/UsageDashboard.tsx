@@ -5,7 +5,7 @@
 //
 // Data flow: the time series is filtered server-side (buckets carry no
 // dimensions), while the summary is fetched once per range and sliced
-// client-side — its rows carry every dimension, so they feed the donut, the
+// client-side — its rows carry every dimension, so they feed the donuts, the
 // client bars, the table and the filter dropdowns from a single request.
 
 import { useMemo, useState } from 'react'
@@ -197,13 +197,24 @@ function mergeUsage(items: UsageAgg[]): UsageAgg {
   return out
 }
 
-type UserMetric = 'tokens' | 'cost' | 'requests'
-
-const USER_METRICS: { key: UserMetric; label: string; description: string }[] = [
-  { key: 'tokens', label: 'Tokens', description: 'Share of total tokens.' },
-  { key: 'cost', label: 'Cost', description: 'Share of total cost.' },
-  { key: 'requests', label: 'Requests', description: 'Share of requests.' },
-]
+// userDonut folds a per-user rollup into donut slices sized by one metric;
+// the rows builder carries the other metrics into the tooltip.
+function userDonut(
+  users: (UsageAgg & { principal?: string })[],
+  value: (u: UsageAgg) => number,
+  rows: (u: UsageAgg) => { label: string; value: string }[],
+): { slices: DonutSlice[]; overflow: DonutSlice[] } {
+  const slice = (u: UsageAgg & { principal?: string }, labelOverride?: string): DonutSlice => ({
+    label: labelOverride ?? u.principal ?? '',
+    value: value(u),
+    rows: rows(u),
+  })
+  return foldDonut(
+    users,
+    (u) => slice(u),
+    (tail) => slice(mergeUsage(tail), `Other (${tail.length} users)`),
+  )
+}
 
 const ALL = 'all'
 
@@ -253,14 +264,13 @@ function FilterSelect({
   )
 }
 
-export function UsageDashboard() {
+export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
   const [rangeKey, setRangeKey] = useState('30d')
   const [principal, setPrincipal] = useState('')
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
   const [client, setClient] = useState('') // a client family; server filter is a prefix match
   const [modelTable, setModelTable] = useState(false) // Models card: donut or full table
-  const [userMetric, setUserMetric] = useState<UserMetric>('tokens') // Users card: what the donut shares out
   const [clientTable, setClientTable] = useState(false) // Clients card: bars or full table
   const [clientByVersion, setClientByVersion] = useState(false) // group per version instead of per tool
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[2]
@@ -413,43 +423,43 @@ export function UsageDashboard() {
     )
   }, [byModel])
 
-  // Per-user rollup for the Users donut, sorted and sized by the chosen
-  // metric. Under the cost metric, unpriced users have nothing to show.
-  const byUser = useMemo(() => {
-    const value = (u: UsageAgg) =>
-      userMetric === 'tokens' ? tokensOf(u) : userMetric === 'cost' ? (u.cost ?? 0) : u.requests
-    const users = [...rollup(filtered, (r) => r.principal, (r) => ({
-      principal: r.principal, requests: 0, cancelled: 0, cost: null as number | null, units: {} as Record<string, number>,
-    })).values()]
-    return (userMetric === 'cost' ? users.filter((u) => u.cost !== null) : users).sort(
-      (a, b) => value(b) - value(a),
-    )
-  }, [filtered, userMetric])
+  // Per-user rollup for the two user donuts, shown only with SSO: a single
+  // user has nothing to share out.
+  const byUser = useMemo(
+    () =>
+      [...rollup(filtered, (r) => r.principal, (r) => ({
+        principal: r.principal, requests: 0, cancelled: 0, cost: null as number | null, units: {} as Record<string, number>,
+      })).values()],
+    [filtered],
+  )
 
-  const { slices: userSlices, overflow: userOverflow } = useMemo(() => {
-    const slice = (u: UsageAgg & { principal?: string }, labelOverride?: string): DonutSlice => ({
-      label: labelOverride ?? u.principal ?? '',
-      value:
-        userMetric === 'tokens' ? tokensOf(u) : userMetric === 'cost' ? (u.cost ?? 0) : u.requests,
-      // The other two metrics ride along in the tooltip.
-      rows: [
-        ...(userMetric !== 'tokens'
-          ? [{ label: 'tokens', value: formatCompact(tokensOf(u)) }]
-          : []),
-        ...(userMetric !== 'requests'
-          ? [{ label: 'requests', value: formatNumber(u.requests) }]
-          : []),
-        ...(userMetric !== 'cost' && u.cost !== null
-          ? [{ label: 'cost', value: formatMoney(u.cost) }]
-          : []),
-      ],
-    })
-    return foldDonut(
-      byUser,
-      (u) => slice(u),
-      (tail) => slice(mergeUsage(tail), `Other (${tail.length} users)`),
-    )
-  }, [byUser, userMetric])
+  // Sized by tokens; requests and cost ride along in the tooltip.
+  const userTokens = useMemo(
+    () =>
+      userDonut(
+        [...byUser].sort((a, b) => tokensOf(b) - tokensOf(a)),
+        tokensOf,
+        (u) => [
+          { label: 'requests', value: formatNumber(u.requests) },
+          ...(u.cost !== null ? [{ label: 'cost', value: formatMoney(u.cost) }] : []),
+        ],
+      ),
+    [byUser],
+  )
+
+  // Sized by cost; unpriced users have nothing to show here.
+  const userCost = useMemo(
+    () =>
+      userDonut(
+        byUser.filter((u) => u.cost !== null).sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0)),
+        (u) => u.cost ?? 0,
+        (u) => [
+          { label: 'tokens', value: formatCompact(tokensOf(u)) },
+          { label: 'requests', value: formatNumber(u.requests) },
+        ],
+      ),
+    [byUser],
+  )
 
   // Per-client rollup: "which tools do we use", grouped per tool by default
   // or per exact version when toggled. Feeds the share bars and the expanded
@@ -726,43 +736,6 @@ export function UsageDashboard() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-start justify-between">
-                <div className="flex flex-col gap-1.5">
-                  <CardTitle className="font-serif">Users</CardTitle>
-                  <CardDescription>
-                    {USER_METRICS.find((m) => m.key === userMetric)?.description}
-                  </CardDescription>
-                </div>
-                <div className="flex gap-1">
-                  {USER_METRICS.map((m) => (
-                    <Button
-                      key={m.key}
-                      variant={userMetric === m.key ? 'secondary' : 'outline'}
-                      size="sm"
-                      aria-pressed={userMetric === m.key}
-                      onClick={() => setUserMetric(m.key)}
-                    >
-                      {m.label}
-                    </Button>
-                  ))}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Donut
-                  // Remount on filter and metric changes so the unfolded
-                  // state resets with the data.
-                  key={`${rangeKey} ${principal} ${provider} ${model} ${client} ${userMetric}`}
-                  slices={userSlices}
-                  overflow={userOverflow}
-                  format={userMetric === 'cost' ? formatMoney : formatCompact}
-                  emptyMessage={
-                    userMetric === 'cost' ? 'Nothing priced in this range.' : undefined
-                  }
-                />
-              </CardContent>
-            </Card>
-
             <Card className={clientTable ? 'lg:col-span-2' : undefined}>
               <CardHeader className="flex flex-row items-start justify-between">
                 <div className="flex flex-col gap-1.5">
@@ -869,6 +842,45 @@ export function UsageDashboard() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Per-user donuts only make sense with SSO; without it there is
+                a single user and nothing to share out. */}
+            {ssoEnabled && (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="font-serif">User tokens</CardTitle>
+                    <CardDescription>Share of total tokens per user.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Donut
+                      // Remount on filter changes so the unfolded state
+                      // resets with the data.
+                      key={`${rangeKey} ${principal} ${provider} ${model} ${client}`}
+                      slices={userTokens.slices}
+                      overflow={userTokens.overflow}
+                      format={formatCompact}
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="font-serif">User cost</CardTitle>
+                    <CardDescription>Share of total cost per user.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Donut
+                      key={`${rangeKey} ${principal} ${provider} ${model} ${client}`}
+                      slices={userCost.slices}
+                      overflow={userCost.overflow}
+                      format={formatMoney}
+                      emptyMessage="Nothing priced in this range."
+                    />
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </div>
 
           <Card>
