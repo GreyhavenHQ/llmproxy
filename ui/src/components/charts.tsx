@@ -313,6 +313,25 @@ const DONUT_FILLS = [
 /** Donut shows at most this many slices; the tail folds into "Other". */
 export const DONUT_MAX_SLICES = DONUT_FILLS.length
 
+// foldDonut caps the slice count: up to the budget everything shows as-is,
+// past it the tail folds into one aggregate slice (built by the caller, which
+// knows how to merge its entities) and rides along as overflow for the
+// component to unfold on demand.
+export function foldDonut<T>(
+  items: T[],
+  toSlice: (item: T) => DonutSlice,
+  fold: (tail: T[]) => DonutSlice,
+): { slices: DonutSlice[]; overflow: DonutSlice[] } {
+  if (items.length <= DONUT_MAX_SLICES) {
+    return { slices: items.map(toSlice), overflow: [] }
+  }
+  const tail = items.slice(DONUT_MAX_SLICES - 1)
+  return {
+    slices: [...items.slice(0, DONUT_MAX_SLICES - 1).map(toSlice), fold(tail)],
+    overflow: tail.map(toSlice),
+  }
+}
+
 function arcPath(cx: number, cy: number, r0: number, r1: number, a0: number, a1: number): string {
   const p = (r: number, a: number) => `${cx + r * Math.sin(a)},${cy - r * Math.cos(a)}`
   const large = a1 - a0 > Math.PI ? 1 : 0

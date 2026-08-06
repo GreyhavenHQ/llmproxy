@@ -25,7 +25,7 @@ import { useAsync } from '@/lib/useAsync'
 import {
   ColumnChart,
   Donut,
-  DONUT_MAX_SLICES,
+  foldDonut,
   SERIES_ACCENT,
   SERIES_GRAY,
   ShareBars,
@@ -177,6 +177,34 @@ function rollup<T extends { requests: number; cancelled: number; cost: number | 
   return out
 }
 
+// mergeUsage folds rollup entries into one aggregate, with the same
+// null-until-priced cost rule.
+interface UsageAgg {
+  requests: number
+  cost: number | null
+  units: Record<string, number>
+}
+
+function mergeUsage(items: UsageAgg[]): UsageAgg {
+  const out: UsageAgg = { requests: 0, cost: null, units: {} }
+  for (const item of items) {
+    out.requests += item.requests
+    if (item.cost !== null) out.cost = (out.cost ?? 0) + item.cost
+    for (const [unit, quantity] of Object.entries(item.units)) {
+      out.units[unit] = (out.units[unit] ?? 0) + quantity
+    }
+  }
+  return out
+}
+
+type UserMetric = 'tokens' | 'cost' | 'requests'
+
+const USER_METRICS: { key: UserMetric; label: string; description: string }[] = [
+  { key: 'tokens', label: 'Tokens', description: 'Share of total tokens.' },
+  { key: 'cost', label: 'Cost', description: 'Share of total cost.' },
+  { key: 'requests', label: 'Requests', description: 'Share of requests.' },
+]
+
 const ALL = 'all'
 
 function FilterSelect({
@@ -195,9 +223,10 @@ function FilterSelect({
   return (
     <div className="relative">
       <Select value={value || ALL} onValueChange={(v) => onChange(v === ALL ? '' : v)}>
-        {/* Room for the clear button between the value and the chevron. */}
-        <SelectTrigger className={value ? 'w-44 pr-12' : 'w-44'} aria-label={label}>
-          <SelectValue />
+        <SelectTrigger className="w-44" aria-label={label}>
+          {/* The value pads itself when the clear button is shown, so the
+              chevron keeps its natural spot at the far right. */}
+          <SelectValue className={value ? 'pr-6' : undefined} />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={ALL}>{allLabel}</SelectItem>
@@ -214,7 +243,7 @@ function FilterSelect({
           size="icon-sm"
           aria-label={`Clear ${label.toLowerCase()} filter`}
           title={`Clear ${label.toLowerCase()} filter`}
-          className="absolute top-1/2 right-7 size-6 -translate-y-1/2"
+          className="absolute top-1/2 right-8 size-6 -translate-y-1/2"
           onClick={() => onChange('')}
         >
           <X className="size-3.5" />
@@ -231,6 +260,7 @@ export function UsageDashboard() {
   const [model, setModel] = useState('')
   const [client, setClient] = useState('') // a client family; server filter is a prefix match
   const [modelTable, setModelTable] = useState(false) // Models card: donut or full table
+  const [userMetric, setUserMetric] = useState<UserMetric>('tokens') // Users card: what the donut shares out
   const [clientTable, setClientTable] = useState(false) // Clients card: bars or full table
   const [clientByVersion, setClientByVersion] = useState(false) // group per version instead of per tool
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[2]
@@ -294,13 +324,26 @@ export function UsageDashboard() {
     bucketTitle(b.start, range.bucket) + (inProgress(b) ? ' · in progress' : '')
 
   // Cancelled requests reached the upstream and are billed, so they stack with
-  // the successful ones; only real failures get their own segment.
-  const requestPoints: ChartPoint[] = buckets.map((b) => ({
-    label: label(b),
-    title: title(b),
-    values: [b.ok + b.cancelled, b.failed],
-    rows: b.cancelled ? [{ label: 'cancelled', value: formatNumber(b.cancelled) }] : undefined,
-  }))
+  // the successful ones; only real failures get their own segment. Failures
+  // carry no usage, so they stay out of the average-size denominator.
+  const requestPoints: ChartPoint[] = buckets.map((b) => {
+    const done = b.ok + b.cancelled
+    const rows = [
+      ...(b.cancelled ? [{ label: 'cancelled', value: formatNumber(b.cancelled) }] : []),
+      ...(done > 0
+        ? [
+            { label: 'avg input / request', value: formatCompact(Math.round(input(b) / done)) },
+            { label: 'avg output / response', value: formatCompact(Math.round(output(b) / done)) },
+          ]
+        : []),
+    ]
+    return {
+      label: label(b),
+      title: title(b),
+      values: [done, b.failed],
+      rows: rows.length ? rows : undefined,
+    }
+  })
   const tokenPoints: ChartPoint[] = buckets.map((b) => ({
     label: label(b),
     title: title(b),
@@ -354,38 +397,59 @@ export function UsageDashboard() {
 
   // The donut shows the top models plus an "Other" slice; the folded tail
   // rides along so the component can unfold it into the list on demand.
-  const { donutSlices, donutOverflow } = useMemo(() => {
-    const slice = (m: (typeof byModel)[number], labelOverride?: string): DonutSlice => ({
+  const { slices: donutSlices, overflow: donutOverflow } = useMemo(() => {
+    const slice = (m: UsageAgg & { model?: string }, labelOverride?: string): DonutSlice => ({
       label: labelOverride ?? (m.model || '(none)'),
-      value: (m.units['input_tokens'] ?? 0) + (m.units['output_tokens'] ?? 0),
+      value: tokensOf(m),
       rows: [
         { label: 'requests', value: formatNumber(m.requests) },
         ...(m.cost !== null ? [{ label: 'cost', value: formatMoney(m.cost) }] : []),
       ],
     })
-    const head = byModel.slice(0, DONUT_MAX_SLICES - 1).map((m) => slice(m))
-    const tail = byModel.slice(DONUT_MAX_SLICES - 1)
-    if (tail.length === 1) {
-      return { donutSlices: [...head, slice(tail[0])], donutOverflow: [] as DonutSlice[] }
-    }
-    if (tail.length > 1) {
-      const other = {
-        model: 'other', requests: 0, cancelled: 0, cost: null as number | null, units: {} as Record<string, number>,
-      }
-      for (const m of tail) {
-        other.requests += m.requests
-        if (m.cost !== null) other.cost = (other.cost ?? 0) + m.cost
-        for (const [unit, quantity] of Object.entries(m.units)) {
-          other.units[unit] = (other.units[unit] ?? 0) + quantity
-        }
-      }
-      return {
-        donutSlices: [...head, slice(other, `Other (${tail.length} models)`)],
-        donutOverflow: tail.map((m) => slice(m)),
-      }
-    }
-    return { donutSlices: head, donutOverflow: [] as DonutSlice[] }
+    return foldDonut(
+      byModel,
+      (m) => slice(m),
+      (tail) => slice(mergeUsage(tail), `Other (${tail.length} models)`),
+    )
   }, [byModel])
+
+  // Per-user rollup for the Users donut, sorted and sized by the chosen
+  // metric. Under the cost metric, unpriced users have nothing to show.
+  const byUser = useMemo(() => {
+    const value = (u: UsageAgg) =>
+      userMetric === 'tokens' ? tokensOf(u) : userMetric === 'cost' ? (u.cost ?? 0) : u.requests
+    const users = [...rollup(filtered, (r) => r.principal, (r) => ({
+      principal: r.principal, requests: 0, cancelled: 0, cost: null as number | null, units: {} as Record<string, number>,
+    })).values()]
+    return (userMetric === 'cost' ? users.filter((u) => u.cost !== null) : users).sort(
+      (a, b) => value(b) - value(a),
+    )
+  }, [filtered, userMetric])
+
+  const { slices: userSlices, overflow: userOverflow } = useMemo(() => {
+    const slice = (u: UsageAgg & { principal?: string }, labelOverride?: string): DonutSlice => ({
+      label: labelOverride ?? u.principal ?? '',
+      value:
+        userMetric === 'tokens' ? tokensOf(u) : userMetric === 'cost' ? (u.cost ?? 0) : u.requests,
+      // The other two metrics ride along in the tooltip.
+      rows: [
+        ...(userMetric !== 'tokens'
+          ? [{ label: 'tokens', value: formatCompact(tokensOf(u)) }]
+          : []),
+        ...(userMetric !== 'requests'
+          ? [{ label: 'requests', value: formatNumber(u.requests) }]
+          : []),
+        ...(userMetric !== 'cost' && u.cost !== null
+          ? [{ label: 'cost', value: formatMoney(u.cost) }]
+          : []),
+      ],
+    })
+    return foldDonut(
+      byUser,
+      (u) => slice(u),
+      (tail) => slice(mergeUsage(tail), `Other (${tail.length} users)`),
+    )
+  }, [byUser, userMetric])
 
   // Per-client rollup: "which tools do we use", grouped per tool by default
   // or per exact version when toggled. Feeds the share bars and the expanded
@@ -662,6 +726,43 @@ export function UsageDashboard() {
               </CardContent>
             </Card>
 
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between">
+                <div className="flex flex-col gap-1.5">
+                  <CardTitle className="font-serif">Users</CardTitle>
+                  <CardDescription>
+                    {USER_METRICS.find((m) => m.key === userMetric)?.description}
+                  </CardDescription>
+                </div>
+                <div className="flex gap-1">
+                  {USER_METRICS.map((m) => (
+                    <Button
+                      key={m.key}
+                      variant={userMetric === m.key ? 'secondary' : 'outline'}
+                      size="sm"
+                      aria-pressed={userMetric === m.key}
+                      onClick={() => setUserMetric(m.key)}
+                    >
+                      {m.label}
+                    </Button>
+                  ))}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Donut
+                  // Remount on filter and metric changes so the unfolded
+                  // state resets with the data.
+                  key={`${rangeKey} ${principal} ${provider} ${model} ${client} ${userMetric}`}
+                  slices={userSlices}
+                  overflow={userOverflow}
+                  format={userMetric === 'cost' ? formatMoney : formatCompact}
+                  emptyMessage={
+                    userMetric === 'cost' ? 'Nothing priced in this range.' : undefined
+                  }
+                />
+              </CardContent>
+            </Card>
+
             <Card className={clientTable ? 'lg:col-span-2' : undefined}>
               <CardHeader className="flex flex-row items-start justify-between">
                 <div className="flex flex-col gap-1.5">
@@ -772,26 +873,6 @@ export function UsageDashboard() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="font-serif">Requests</CardTitle>
-              <CardDescription>
-                Per {range.bucket}, split by outcome; cancelled counts as ok.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ColumnChart
-                points={requestPoints}
-                series={[
-                  { ...SERIES_ACCENT, name: 'ok' },
-                  { ...SERIES_GRAY, name: 'failed' },
-                ]}
-                format={formatCompact}
-                integer
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
               <CardTitle className="font-serif">Tokens</CardTitle>
               <CardDescription>
                 Input and output per {range.bucket}; cached input included.
@@ -805,6 +886,26 @@ export function UsageDashboard() {
                   { ...SERIES_GRAY, name: 'output' },
                 ]}
                 format={formatCompact}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-serif">Requests</CardTitle>
+              <CardDescription>
+                Per {range.bucket}, split by outcome.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ColumnChart
+                points={requestPoints}
+                series={[
+                  { ...SERIES_ACCENT, name: 'ok' },
+                  { ...SERIES_GRAY, name: 'failed' },
+                ]}
+                format={formatCompact}
+                integer
               />
             </CardContent>
           </Card>
