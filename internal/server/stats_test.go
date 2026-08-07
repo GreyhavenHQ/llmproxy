@@ -139,26 +139,7 @@ func TestStatsOpenToMembers(t *testing.T) {
 
 func TestStatsFilters(t *testing.T) {
 	e := newEnv(t)
-	// One event through /v1 (provider "fake"), one through the relay
-	// (sentinel provider), with distinct clients.
-	req, _ := http.NewRequest("POST", e.proxy.URL+"/v1/chat/completions",
-		strings.NewReader(`{"model":"alpha","messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("Authorization", "Bearer "+e.adminKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "openai-python/1.51.0")
-	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 200 {
-		t.Fatalf("chat completion failed: %v", err)
-	}
-	req, _ = http.NewRequest("POST", e.proxy.URL+"/transparent/anthropic/"+e.relayToken+"/v1/messages",
-		strings.NewReader(`{"model":"claude-fake-1","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("x-api-key", anthropicKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "claude-cli/2.0.13 (external, cli)")
-	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 200 {
-		t.Fatalf("relay request failed: %v", err)
-	}
-	e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Alias == "alpha" })
-	e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.ProviderID == "transparent:anthropic" })
+	seedTwoRequests(t, e)
 
 	rowsFor := func(query string) []any {
 		resp, data := e.request(t, "GET", "/stats/summary"+query, e.memberKey, nil)
@@ -197,6 +178,18 @@ func TestStatsFilters(t *testing.T) {
 	}
 	if rows := rowsFor("?principal=bob"); len(rows) != 1 {
 		t.Fatalf("principal filter (bob): %d rows, want 1", len(rows))
+	}
+	// The key filter lives in the shared WHERE clause, so every aggregate
+	// honours it. Only the /v1 event was minted under an API key.
+	keys, err := e.st.ListAPIKeys(context.Background(), "", "local-admin", 10, 0)
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("ListAPIKeys = %v, %v", keys, err)
+	}
+	if rows := rowsFor("?key=" + keys[0].ID); len(rows) != 1 {
+		t.Fatalf("key filter: %d rows, want 1", len(rows))
+	}
+	if rows := rowsFor("?key=" + keys[0].ID + "&provider=transparent:anthropic"); len(rows) != 0 {
+		t.Fatalf("key+provider filters: %d rows, want 0", len(rows))
 	}
 	resp, data := e.request(t, "GET", "/stats/summary?principal=nobody", e.memberKey, nil)
 	if resp.StatusCode != 404 || errorCode(t, data) != "principal_not_found" {
@@ -349,6 +342,144 @@ func TestStatsSummaryExcludesModellessEvents(t *testing.T) {
 	}
 	if ok != 1 {
 		t.Fatalf("series ok = %v, want 1 (count_tokens still counts as a request)", ok)
+	}
+}
+
+// seedTwoRequests records one /v1 event (admin key, provider "fake") and one
+// relay event (bob's relay token, sentinel provider), with distinct clients.
+func seedTwoRequests(t *testing.T, e *env) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", e.proxy.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"alpha","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Authorization", "Bearer "+e.adminKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "openai-python/1.51.0")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("chat completion failed: %v", err)
+	}
+	resp.Body.Close()
+	req, _ = http.NewRequest("POST", e.proxy.URL+"/transparent/anthropic/"+e.relayToken+"/v1/messages",
+		strings.NewReader(`{"model":"claude-fake-1","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("x-api-key", anthropicKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "claude-cli/2.0.13 (external, cli)")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("relay request failed: %v", err)
+	}
+	resp.Body.Close()
+	e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Alias == "alpha" })
+	e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.ProviderID == "transparent:anthropic" })
+}
+
+// TestRequestExplorerFilters covers the request explorer surface: the facets
+// endpoint that feeds its dropdowns, the API key filter, the time window and
+// offset paging with a stable total.
+func TestRequestExplorerFilters(t *testing.T) {
+	e := newEnv(t)
+	seedTwoRequests(t, e)
+
+	get := func(path string) map[string]any {
+		t.Helper()
+		resp, data := e.request(t, "GET", path, e.memberKey, nil)
+		if resp.StatusCode != 200 {
+			t.Fatalf("GET %s = %d: %s", path, resp.StatusCode, data)
+		}
+		return decode(t, data)
+	}
+	rowsFor := func(query string) ([]any, float64) {
+		t.Helper()
+		body := get("/stats/requests" + query)
+		rows, _ := body["requests"].([]any)
+		total, _ := body["total"].(float64)
+		return rows, total
+	}
+
+	// Facets list the distinct values in the window, including the keys every
+	// authenticated user may filter by.
+	facets := get("/stats/requests/facets")
+	var adminKeyID string
+	keys, _ := facets["keys"].([]any)
+	for _, k := range keys {
+		key := k.(map[string]any)
+		if key["label"] == "test-admin" {
+			adminKeyID, _ = key["id"].(string)
+		}
+	}
+	if adminKeyID == "" {
+		t.Fatalf("facets keys missing test-admin: %v", keys)
+	}
+	if principals, _ := facets["principals"].([]any); len(principals) != 2 {
+		t.Fatalf("facets principals = %v, want local-admin and bob", principals)
+	}
+	if clients, _ := facets["clients"].([]any); len(clients) != 2 {
+		t.Fatalf("facets clients = %v, want 2", clients)
+	}
+
+	// Unfiltered: both events, total matches.
+	rows, total := rowsFor("")
+	if len(rows) != 2 || total != 2 {
+		t.Fatalf("unfiltered = %d rows, total %v, want 2/2", len(rows), total)
+	}
+
+	// Key filter narrows to the one event minted under that key, and the row
+	// carries the key's label back for display.
+	rows, total = rowsFor("?key=" + adminKeyID)
+	if len(rows) != 1 || total != 1 {
+		t.Fatalf("key filter = %d rows, total %v, want 1/1", len(rows), total)
+	}
+	row := rows[0].(map[string]any)
+	if row["model"] != "alpha" || row["key_label"] != "test-admin" {
+		t.Fatalf("key filter row = %v", row)
+	}
+	if row["provider"] != "fake" {
+		t.Fatalf("row provider = %v, want fake", row["provider"])
+	}
+	if _, total := rowsFor("?key=no-such-key"); total != 0 {
+		t.Fatalf("unknown key total = %v, want 0", total)
+	}
+
+	// The relay event stores a relay token id, which is not an API key: no
+	// label, no suffix, and it never matches a key filter.
+	rows, _ = rowsFor("?provider=transparent:anthropic")
+	if len(rows) != 1 {
+		t.Fatalf("relay filter = %d rows, want 1", len(rows))
+	}
+	if relay := rows[0].(map[string]any); relay["key_label"] != "" || relay["key_suffix"] != "" {
+		t.Fatalf("relay row carries a key: %v", relay)
+	}
+
+	// since/until bound the window on the stored UTC timestamp.
+	if _, total := rowsFor("?since=2999-01-01T00:00:00Z"); total != 0 {
+		t.Fatalf("future since total = %v, want 0", total)
+	}
+	if _, total := rowsFor("?until=2000-01-01T00:00:00Z"); total != 0 {
+		t.Fatalf("past until total = %v, want 0", total)
+	}
+	if _, total := rowsFor("?since=2000-01-01T00:00:00Z&until=2999-01-01T00:00:00Z"); total != 2 {
+		t.Fatalf("wide window total = %v, want 2", total)
+	}
+
+	// Offset walks pages; the total stays the size of the whole filtered set.
+	first, total := rowsFor("?limit=1&offset=0")
+	if len(first) != 1 || total != 2 {
+		t.Fatalf("page 1 = %d rows, total %v, want 1/2", len(first), total)
+	}
+	second, total := rowsFor("?limit=1&offset=1")
+	if len(second) != 1 || total != 2 {
+		t.Fatalf("page 2 = %d rows, total %v, want 1/2", len(second), total)
+	}
+	if first[0].(map[string]any)["id"] == second[0].(map[string]any)["id"] {
+		t.Fatalf("page 2 repeats page 1: %v", first[0])
+	}
+	if rows, _ := rowsFor("?limit=1&offset=5"); len(rows) != 0 {
+		t.Fatalf("offset past the end = %d rows, want 0", len(rows))
+	}
+
+	// Quantities follow the paged rows, not a re-derived newest-N set.
+	if units, _ := first[0].(map[string]any)["units"].(map[string]any); len(units) == 0 {
+		t.Fatalf("paged row lost its quantities: %v", first[0])
 	}
 }
 

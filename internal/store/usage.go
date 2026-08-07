@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/monadical/llmproxy/internal/secrets"
@@ -88,25 +89,35 @@ func (s *Store) ListQuantities(ctx context.Context, usageEventID string) ([]Usag
 	return out, rows.Err()
 }
 
-// RecentUsage returns the newest usage events with quantities and principal
-// names, for the request log.
-func (s *Store) RecentUsage(ctx context.Context, limit int) ([]RequestLogRow, error) {
+// ListRequests returns one page of the filtered request log, newest first,
+// with quantities and the principal, provider and key names resolved. The
+// second ordering key keeps paging stable when several events share a
+// timestamp.
+func (s *Store) ListRequests(ctx context.Context, f UsageFilter, limit, offset int) ([]RequestLogRow, error) {
+	where, args := usageWhere(f)
+	// The provider join must be aliased `p`, as usageWhere's provider clause
+	// expects; the principal join takes `pp`.
 	rows, err := s.db.QueryContext(ctx, s.q(`
-		SELECT e.id, e.ts, COALESCE(p.name, e.principal_id), e.alias, e.endpoint, e.client, e.outcome,
+		SELECT e.id, e.ts, COALESCE(pp.name, e.principal_id), `+providerNameSQL+`, e.alias, e.endpoint,
+			e.client, e.api_key_id, COALESCE(k.label, ''), COALESCE(k.key_suffix, ''), e.outcome,
 			e.status_code, e.streamed, e.cancelled, e.cost, e.unpriced, e.duration_ms
-		FROM usage_event e LEFT JOIN principal p ON e.principal_id = p.id
-		ORDER BY e.ts DESC LIMIT ?`), limit)
+		FROM usage_event e
+			LEFT JOIN principal pp ON e.principal_id = pp.id
+			LEFT JOIN provider p ON e.provider_id = p.id
+			LEFT JOIN api_key k ON e.api_key_id = k.id`+where+`
+		ORDER BY e.ts DESC, e.id DESC LIMIT ? OFFSET ?`), append(args, limit, offset)...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []RequestLogRow
 	index := make(map[string]int)
+	ids := make([]any, 0, limit)
 	for rows.Next() {
 		var r RequestLogRow
-		var id string
 		var streamed, cancelled, unpriced int64
-		if err := rows.Scan(&id, &r.TS, &r.PrincipalName, &r.Alias, &r.Endpoint, &r.Client, &r.Outcome,
+		if err := rows.Scan(&r.ID, &r.TS, &r.PrincipalName, &r.Provider, &r.Alias, &r.Endpoint,
+			&r.Client, &r.APIKeyID, &r.KeyLabel, &r.KeySuffix, &r.Outcome,
 			&r.StatusCode, &streamed, &cancelled, &r.Cost, &unpriced, &r.DurationMs); err != nil {
 			return nil, err
 		}
@@ -114,16 +125,23 @@ func (s *Store) RecentUsage(ctx context.Context, limit int) ([]RequestLogRow, er
 		r.Cancelled = cancelled != 0
 		r.Unpriced = unpriced != 0
 		r.Units = make(map[string]float64)
-		index[id] = len(out)
+		index[r.ID] = len(out)
+		ids = append(ids, r.ID)
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	// Fetch quantities for exactly the ids on this page. Re-deriving the set
+	// with a subquery would have to repeat the filter and the offset, and any
+	// event recorded in between would shift it.
 	quantities, err := s.db.QueryContext(ctx, s.q(`
 		SELECT q.usage_event_id, q.unit, `+anthropicFlagSQL+`, q.quantity
 		FROM usage_quantity q JOIN usage_event e ON q.usage_event_id = e.id
-		WHERE q.usage_event_id IN (SELECT id FROM usage_event ORDER BY ts DESC LIMIT ?)`), limit)
+		WHERE q.usage_event_id IN (`+placeholders(len(ids))+`)`), ids...)
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +158,98 @@ func (s *Store) RecentUsage(ctx context.Context, limit int) ([]RequestLogRow, er
 		}
 	}
 	return out, quantities.Err()
+}
+
+// CountRequests is the size of the filtered set, for the pager.
+func (s *Store) CountRequests(ctx context.Context, f UsageFilter) (int64, error) {
+	where, args := usageWhere(f)
+	var n int64
+	err := s.db.QueryRowContext(ctx, s.q(`
+		SELECT COUNT(*) FROM usage_event e
+			LEFT JOIN provider p ON e.provider_id = p.id`+where), args...).Scan(&n)
+	return n, err
+}
+
+// facetLimit caps every facet list. A User-Agent column is high cardinality
+// by nature, and an unbounded DISTINCT over "all time" would return a list no
+// dropdown can use.
+const facetLimit = 500
+
+// RequestFacets lists the distinct filter values present in a window. Five
+// small scans, fetched only when the window changes.
+func (s *Store) RequestFacets(ctx context.Context, since, until string) (RequestFacets, error) {
+	where, args := usageWhere(UsageFilter{Since: since, Until: until})
+	var out RequestFacets
+
+	strs := func(query string) ([]string, error) {
+		rows, err := s.db.QueryContext(ctx, s.q(query), args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var values []string
+		for rows.Next() {
+			var v string
+			if err := rows.Scan(&v); err != nil {
+				return nil, err
+			}
+			if v != "" {
+				values = append(values, v)
+			}
+		}
+		return values, rows.Err()
+	}
+
+	var err error
+	if out.Principals, err = strs(`
+		SELECT DISTINCT COALESCE(pp.name, e.principal_id) AS name
+		FROM usage_event e LEFT JOIN principal pp ON e.principal_id = pp.id` + where + `
+		ORDER BY name LIMIT ` + strconv.Itoa(facetLimit)); err != nil {
+		return out, err
+	}
+	if out.Providers, err = strs(`
+		SELECT DISTINCT ` + providerNameSQL + ` AS name
+		FROM usage_event e LEFT JOIN provider p ON e.provider_id = p.id` + where + `
+		ORDER BY name LIMIT ` + strconv.Itoa(facetLimit)); err != nil {
+		return out, err
+	}
+	if out.Models, err = strs(`
+		SELECT DISTINCT e.alias FROM usage_event e` + where + `
+		ORDER BY e.alias LIMIT ` + strconv.Itoa(facetLimit)); err != nil {
+		return out, err
+	}
+	if out.Clients, err = strs(`
+		SELECT DISTINCT e.client FROM usage_event e` + where + `
+		ORDER BY e.client LIMIT ` + strconv.Itoa(facetLimit)); err != nil {
+		return out, err
+	}
+
+	// Keys are the API keys that actually appear in the window; relay tokens
+	// share the column but match no api_key row, so they drop out here.
+	keys, err := s.db.QueryContext(ctx, s.q(`
+		SELECT DISTINCT k.id, k.label, k.key_suffix, COALESCE(pp.name, k.principal_id) AS owner
+		FROM usage_event e
+			JOIN api_key k ON e.api_key_id = k.id
+			LEFT JOIN principal pp ON k.principal_id = pp.id`+where+`
+		ORDER BY owner, k.label LIMIT `+strconv.Itoa(facetLimit)), args...)
+	if err != nil {
+		return out, err
+	}
+	defer keys.Close()
+	for keys.Next() {
+		var k FacetKey
+		if err := keys.Scan(&k.ID, &k.Label, &k.Suffix, &k.Principal); err != nil {
+			return out, err
+		}
+		out.Keys = append(out.Keys, k)
+	}
+	return out, keys.Err()
+}
+
+// placeholders builds "?, ?, …" for an IN list; Store.q rewrites them
+// positionally for Postgres.
+func placeholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
 }
 
 func (s *Store) CountUsageEvents(ctx context.Context) (int64, error) {
@@ -198,6 +308,10 @@ func usageWhere(f UsageFilter) (string, []any) {
 	if f.PrincipalID != "" {
 		where += ` AND e.principal_id = ?`
 		args = append(args, f.PrincipalID)
+	}
+	if f.APIKeyID != "" {
+		where += ` AND e.api_key_id = ?`
+		args = append(args, f.APIKeyID)
 	}
 	if f.Provider != "" {
 		where += ` AND ` + providerNameSQL + ` = ?`
