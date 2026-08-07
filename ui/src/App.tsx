@@ -126,10 +126,20 @@ function Shell({ me }: { me: Me }) {
     <Tabs value={nav.tab} onValueChange={navigate}>
       <header className="border-b bg-card">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-          <div className="flex items-center gap-2">
+          {/* Anchor, not a button, so cmd-click and middle-click open Usage in
+              a new tab; the plain left-click stays in the SPA. */}
+          <a
+            href="/usage"
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+              e.preventDefault()
+              navigate('usage')
+            }}
+            className="flex items-center gap-2 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          >
             <Logo className="h-6" />
             <span className="font-serif text-lg font-semibold">llmproxy</span>
-          </div>
+          </a>
           <TabsList>
             <TabsTrigger value="usage">Usage</TabsTrigger>
             <TabsTrigger value="requests">Requests</TabsTrigger>
