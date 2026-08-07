@@ -161,11 +161,18 @@ export interface DiscoveredModel {
 }
 
 export interface RequestRow {
+  id: string
   ts: string
   principal: string
+  provider: string
   model: string
   endpoint: string
   client: string
+  // key_label and key_suffix are empty when the request carried no API key:
+  // relay traffic, or a key deleted since.
+  key_id: string
+  key_label: string
+  key_suffix: string
   outcome: string
   status_code: number | null
   streamed: boolean
@@ -174,6 +181,30 @@ export interface RequestRow {
   unpriced: boolean
   duration_ms: number
   units: Record<string, number>
+}
+
+export interface RequestPage {
+  requests: RequestRow[]
+  limit: number
+  offset: number
+  total: number
+}
+
+export interface FacetKey {
+  id: string
+  label: string
+  key_suffix: string
+  principal: string
+}
+
+// The distinct values present in the selected window, for the request
+// explorer's dropdowns.
+export interface RequestFacets {
+  principals: string[]
+  providers: string[]
+  models: string[]
+  clients: string[]
+  keys: FacetKey[]
 }
 
 export function formatCost(cost: number | null): string {
