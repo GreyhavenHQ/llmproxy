@@ -92,20 +92,24 @@ function OutcomeBadge({ row }: { row: RequestRow }) {
   )
 }
 
-// KeyCell: an API key by label, falling back to its suffix. The relay stores
-// a relay token id rather than a key, so relay rows say so instead.
-function KeyCell({ row }: { row: RequestRow }) {
-  if (row.key_label || row.key_suffix) {
-    return (
-      <span title={row.key_suffix ? `…${row.key_suffix}` : undefined}>
-        {row.key_label || `…${row.key_suffix}`}
-      </span>
-    )
-  }
-  if (row.provider === 'transparent:anthropic') {
-    return <span className="text-muted-foreground">relay</span>
-  }
-  return <span className="text-muted-foreground">—</span>
+// UserCell: the caller, with the last four of the key they used trailing it.
+// Both filters are in the row above, so the key needs no column of its own;
+// the label rides along in the tooltip. Relay traffic carries a relay token
+// rather than a key, so those rows show the name alone.
+function UserCell({ row }: { row: RequestRow }) {
+  return (
+    <span className="whitespace-nowrap">
+      {row.principal}
+      {row.key_suffix && (
+        <span
+          className="ml-1.5 font-mono text-xs text-muted-foreground"
+          title={row.key_label || undefined}
+        >
+          ···{row.key_suffix}
+        </span>
+      )}
+    </span>
+  )
 }
 
 export function Requests() {
@@ -313,9 +317,7 @@ export function Requests() {
                 <TableRow>
                   <TableHead>Time</TableHead>
                   <TableHead>User</TableHead>
-                  <TableHead>Key</TableHead>
                   <TableHead>Model</TableHead>
-                  <TableHead>Provider</TableHead>
                   <TableHead>Endpoint</TableHead>
                   <TableHead>Client</TableHead>
                   <TableHead>Outcome</TableHead>
@@ -329,7 +331,7 @@ export function Requests() {
               <TableBody>
                 {shown === 0 && (
                   <TableRow>
-                    <TableCell colSpan={13} className="text-muted-foreground">
+                    <TableCell colSpan={11} className="text-muted-foreground">
                       {filtered || since
                         ? 'No requests match these filters.'
                         : 'No requests recorded yet.'}
@@ -341,12 +343,10 @@ export function Requests() {
                     <TableCell className="whitespace-nowrap text-xs">
                       {formatDate(r.ts)}
                     </TableCell>
-                    <TableCell>{r.principal}</TableCell>
-                    <TableCell className="text-xs">
-                      <KeyCell row={r} />
+                    <TableCell>
+                      <UserCell row={r} />
                     </TableCell>
                     <TableCell className="font-mono text-xs">{r.model}</TableCell>
-                    <TableCell className="text-xs">{r.provider}</TableCell>
                     <TableCell>{r.endpoint}</TableCell>
                     <TableCell className="font-mono text-xs" title={r.client || undefined}>
                       {r.client ? (
