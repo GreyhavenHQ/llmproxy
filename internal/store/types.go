@@ -134,13 +134,20 @@ type AuthResult struct {
 }
 
 // RequestLogRow is one usage event with its per-unit quantities and the
-// principal name resolved, for the request log (metadata only).
+// principal name resolved, for the request log (metadata only). KeyLabel and
+// KeySuffix are empty when the event's api_key_id names no API key row: a
+// deleted key, or a relay token (the relay stores its own token id there).
 type RequestLogRow struct {
+	ID            string
 	TS            string
 	PrincipalName string
+	Provider      string
 	Alias         string
 	Endpoint      string
 	Client        string
+	APIKeyID      string
+	KeyLabel      string
+	KeySuffix     string
 	Outcome       string
 	StatusCode    sql.NullInt64
 	Streamed      bool
@@ -149,6 +156,29 @@ type RequestLogRow struct {
 	Unpriced      bool
 	DurationMs    int64
 	Units         map[string]float64
+}
+
+// RequestFacets are the distinct values available in a time window, feeding
+// the request explorer's filter dropdowns. Derived from every event, not just
+// the completed ones the usage breakdown keeps: the explorer exists to find
+// failures, so a user or key that has only ever failed must still be
+// selectable. Each list is capped, so a high-cardinality dimension (clients,
+// above all) cannot inflate the response.
+type RequestFacets struct {
+	Principals []string
+	Providers  []string
+	Models     []string
+	Clients    []string
+	Keys       []FacetKey
+}
+
+// FacetKey is one API key offered as a filter option. Labels and suffixes are
+// team-visible here, as the rest of the stats surface already is.
+type FacetKey struct {
+	ID        string
+	Label     string
+	Suffix    string
+	Principal string
 }
 
 type UsageSummaryRow struct {
@@ -165,9 +195,11 @@ type UsageSummaryRow struct {
 // Provider matches the resolved provider name (the relay sentinel included);
 // Model matches the alias the caller used. Client is a prefix match on the
 // stored User-Agent, so a product token like "claude-cli" covers every
-// version.
+// version. APIKeyID matches the key the request authenticated with; relay
+// traffic carries a relay token id there and so never matches.
 type UsageFilter struct {
 	PrincipalID string
+	APIKeyID    string
 	Provider    string
 	Model       string
 	Client      string

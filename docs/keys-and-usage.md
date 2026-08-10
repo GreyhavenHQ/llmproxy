@@ -304,11 +304,17 @@ than 1000 buckets is refused with 400 `range_too_large`.
 
 The `/stats` endpoints serve the same accounting to **every authenticated
 user**: the proxy's usage is team-visible by design, and the admin role gates
-configuration, not visibility. All three take the same optional filters:
-`principal=<name>`, `provider=<name>` (the sentinel `transparent:anthropic`
-included; a deleted provider's events resolve to `(deleted)`),
-`model=<alias>` and `client=<prefix>` (a prefix match on the stored
-User-Agent, so `client=claude-cli` covers every version).
+configuration, not visibility. They take the same optional filters:
+`principal=<name>`, `key=<api key id>`, `provider=<name>` (the sentinel
+`transparent:anthropic` included; a deleted provider's events resolve to
+`(deleted)`), `model=<alias>`, `client=<prefix>` (a prefix match on the
+stored User-Agent, so `client=claude-cli` covers every version) and the
+`since`/`until` window.
+
+The `key` filter matches API keys only. Relay traffic authenticates with a
+relay token, whose id occupies the same column, so relay events never match a
+key filter and show no key; reach them through
+`provider=transparent:anthropic` instead.
 
 * `GET /stats/series`: the bucketed series above, with the extra filters.
 * `GET /stats/summary`: the window aggregated over every recorded dimension:
@@ -319,8 +325,17 @@ User-Agent, so `client=claude-cli` covers every version).
   and `models` calls report no model and no usage) have no place in a
   by-model breakdown. Both stay visible in the series and in the request
   log.
-* `GET /stats/requests`: the newest events with quantities (`?limit=`, max
-  500): the request metadata log, failures included.
+* `GET /stats/requests`: one page of the request metadata log with
+  quantities, newest first, failures included. `?limit=` (max 500) and
+  `?offset=` page it; the response carries `{requests, limit, offset,
+  total}`, where `total` is the size of the whole filtered set.
+* `GET /stats/requests/facets`: the distinct `principals`, `keys`,
+  `providers`, `models` and `clients` present in the `since`/`until` window,
+  for the explorer's filter options. Derived from every event, not just the
+  completed ones the summary keeps, so a user or key that has only ever
+  failed is still selectable. Each list is capped at 500 values. Key labels
+  and last-4 suffixes are visible to every authenticated user here, as the
+  rest of the stats surface already is.
 
 ```bash
 curl -s "$P/stats/summary?since=2026-07-01&client=claude-cli" -H "authorization: Bearer $KEY"
@@ -346,7 +361,9 @@ curl -s "$P/stats/summary?since=2026-07-01&client=claude-cli" -H "authorization:
 
 This is what the UI draws: the Usage tab (tiles, per-period charts, the model
 share, the client breakdown and the by-user table, filterable by user,
-provider and client) and the Requests tab (the live request log). The older
+provider and client) and the Requests tab (the request explorer: a window
+preset or a custom UTC date range, filters for user, key, client, model and
+provider, and numbered pages with a total). The older
 `/my/usage*` and `/admin/v1/usage*` endpoints stay as documented above.
 
 ## Metrics

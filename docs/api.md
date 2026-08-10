@@ -62,15 +62,17 @@ set), `invalid_json`, `model_required`, `request_too_large` (413),
 ## Team statistics (`/stats`, any authenticated user)
 
 The proxy's usage is team-visible by design; the admin role gates
-configuration, not visibility. All three endpoints accept
-`principal`, `provider`, `model` and `client` filters; see
+configuration, not visibility. Every endpoint accepts the same filters:
+`principal`, `key` (an API key id), `provider`, `model`, `client` and the
+`since`/`until` window; see
 [keys-and-usage.md](keys-and-usage.md#team-statistics).
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /stats/series?bucket&since&until` | Bucketed usage across everyone |
 | `GET /stats/summary?since&until` | Usage aggregated per (principal, provider, model, endpoint, client) |
-| `GET /stats/requests?limit` | Newest usage events: the request metadata log (never content) |
+| `GET /stats/requests?limit&offset` | One page of the filtered request metadata log (never content), newest first; returns `{requests, limit, offset, total}` |
+| `GET /stats/requests/facets?since&until` | Distinct principals, keys, providers, models and clients in the window, for the explorer's filter options |
 
 ## Transparent Anthropic relay (`/transparent/anthropic`)
 
@@ -102,7 +104,7 @@ Proxy-generated errors: 404 `unknown_relay_token`, 404
 | `POST/GET /pricing` | Load/inspect the versioned pricing feed (bulk; per-model prices go through `/models`) |
 | `GET /usage/summary?since&until&principal` | Usage and cost by principal/model/endpoint/unit |
 | `GET /usage/series?bucket&since&until&principal` | Usage bucketed by hour/day/week/month across everyone |
-| `GET /requests?limit` | Newest usage events with per-unit quantities: the request metadata log (who, model, outcome, tokens; never content) |
+| `GET /requests?limit&offset` | The request metadata log with per-unit quantities (who, key, model, outcome, tokens; never content); same filters as `/stats/requests` |
 | `GET /events` | Metadata-only admin audit trail |
 
 ## Browser auth (`/auth`)

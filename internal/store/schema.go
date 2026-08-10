@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS usage_event (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_event_ts ON usage_event(ts);
 CREATE INDEX IF NOT EXISTS idx_usage_event_principal ON usage_event(principal_id);
+CREATE INDEX IF NOT EXISTS idx_usage_event_key ON usage_event(api_key_id);
 CREATE TABLE IF NOT EXISTS usage_quantity (
     id TEXT PRIMARY KEY,
     usage_event_id TEXT NOT NULL REFERENCES usage_event(id),

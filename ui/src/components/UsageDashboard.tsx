@@ -34,6 +34,7 @@ import {
   type DonutSlice,
   type ShareRow,
 } from '@/components/charts'
+import { FilterSelect } from '@/components/FilterSelect'
 import { UsageTable } from '@/components/UsageTable'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -216,53 +217,6 @@ function userDonut(
   )
 }
 
-const ALL = 'all'
-
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-  allLabel,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  options: string[]
-  allLabel: string
-}) {
-  return (
-    <div className="relative">
-      <Select value={value || ALL} onValueChange={(v) => onChange(v === ALL ? '' : v)}>
-        <SelectTrigger className="w-44" aria-label={label}>
-          {/* The value pads itself when the clear button is shown, so the
-              chevron keeps its natural spot at the far right. */}
-          <SelectValue className={value ? 'pr-6' : undefined} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL}>{allLabel}</SelectItem>
-          {options.map((name) => (
-            <SelectItem key={name} value={name}>
-              {name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {value && (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Clear ${label.toLowerCase()} filter`}
-          title={`Clear ${label.toLowerCase()} filter`}
-          className="absolute top-1/2 right-8 size-6 -translate-y-1/2"
-          onClick={() => onChange('')}
-        >
-          <X className="size-3.5" />
-        </Button>
-      )}
-    </div>
-  )
-}
 
 export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
   const [rangeKey, setRangeKey] = useState('30d')

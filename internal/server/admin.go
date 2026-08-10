@@ -1044,28 +1044,48 @@ func (s *Server) handleUsageSummary(w http.ResponseWriter, r *http.Request, auth
 	writeJSON(w, 200, map[string]any{"usage": summaryViews(rows, names)})
 }
 
-// serveRequestLog returns the newest usage events with per-unit quantities:
-// the request metadata log (who, model, endpoint, client, outcome, tokens).
-// No content, ever; there is none to return. Served to every authenticated
-// user (/stats/requests) and kept on the admin path for compatibility.
+// serveRequestLog returns one filtered, paged slice of the usage events with
+// per-unit quantities: the request metadata log (who, key, model, endpoint,
+// client, outcome, tokens). No content, ever; there is none to return.
+// Served to every authenticated user (/stats/requests) and kept on the admin
+// path for compatibility. total is the size of the whole filtered set, so the
+// pager can show it without walking the pages.
 func (s *Server) serveRequestLog(w http.ResponseWriter, r *http.Request) {
+	filter, ok := s.statsFilter(w, r)
+	if !ok {
+		return
+	}
 	limit := 50
 	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v >= 1 && v <= 500 {
 		limit = v
 	}
-	events, err := s.store.RecentUsage(r.Context(), limit)
+	offset := 0
+	if v, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && v >= 0 {
+		offset = v
+	}
+	events, err := s.store.ListRequests(r.Context(), filter, limit, offset)
 	if err != nil {
 		internalErr(w, "failed to load recent usage")
+		return
+	}
+	total, err := s.store.CountRequests(r.Context(), filter)
+	if err != nil {
+		internalErr(w, "failed to count usage")
 		return
 	}
 	views := make([]map[string]any, 0, len(events))
 	for _, ev := range events {
 		view := map[string]any{
+			"id":          ev.ID,
 			"ts":          ev.TS,
 			"principal":   ev.PrincipalName,
+			"provider":    ev.Provider,
 			"model":       ev.Alias,
 			"endpoint":    ev.Endpoint,
 			"client":      ev.Client,
+			"key_id":      ev.APIKeyID,
+			"key_label":   ev.KeyLabel,
+			"key_suffix":  ev.KeySuffix,
 			"outcome":     ev.Outcome,
 			"status_code": nil,
 			"streamed":    ev.Streamed,
@@ -1083,7 +1103,9 @@ func (s *Server) serveRequestLog(w http.ResponseWriter, r *http.Request) {
 		}
 		views = append(views, view)
 	}
-	writeJSON(w, 200, map[string]any{"requests": views, "limit": limit})
+	writeJSON(w, 200, map[string]any{
+		"requests": views, "limit": limit, "offset": offset, "total": total,
+	})
 }
 
 func (s *Server) handleAdminRequests(w http.ResponseWriter, r *http.Request, auth *Auth) {

@@ -2519,12 +2519,14 @@ paths:
   /admin/v1/requests:
     get:
       tags: [admin]
-      summary: Recent requests (metadata only)
+      summary: Request metadata log (filtered and paged)
       description: >
-        The newest usage events with per-unit quantities and resolved
-        principal names: who called which model on which endpoint, the
-        outcome, token counts and cost. Request and response content is never
-        stored, so there is none to return.
+        One page of the usage events with per-unit quantities and resolved
+        principal, provider and key names: who called which model on which
+        endpoint with which key, the outcome, token counts and cost. Newest
+        first, failures included. Request and response content is never
+        stored, so there is none to return. `/stats/requests` serves the same
+        payload to every authenticated user.
       security:
         - bearerApiKey: []
         - apiKeyHeader: []
@@ -2535,27 +2537,74 @@ paths:
           description: Number of events, 1 to 500 (default 50).
           schema:
             type: integer
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/since'
+        - $ref: '#/components/parameters/until'
+        - name: principal
+          in: query
+          description: Restrict to one principal by name.
+          schema:
+            type: string
+        - name: key
+          in: query
+          description: >
+            Restrict to one API key by id. Relay traffic carries a relay
+            token id in the same column and so never matches.
+          schema:
+            type: string
+        - name: provider
+          in: query
+          description: >
+            Restrict to one resolved provider name, the sentinel
+            `transparent:anthropic` included.
+          schema:
+            type: string
+        - name: model
+          in: query
+          description: Restrict to one model alias.
+          schema:
+            type: string
+        - name: client
+          in: query
+          description: >
+            Prefix match on the stored User-Agent, so `claude-cli` covers
+            every version.
+          schema:
+            type: string
       responses:
         '200':
-          description: Newest events first.
+          description: Newest events first; `total` is the size of the whole filtered set.
           content:
             application/json:
               schema:
                 type: object
-                required: [requests, limit]
+                required: [requests, limit, offset, total]
                 properties:
                   requests:
                     type: array
                     items:
                       type: object
                       properties:
+                        id:
+                          type: string
                         ts:
                           type: string
                         principal:
                           type: string
+                        provider:
+                          type: string
                         model:
                           type: string
                         endpoint:
+                          type: string
+                        client:
+                          type: string
+                        key_id:
+                          type: string
+                        key_label:
+                          type: string
+                          description: Empty when the event carries no API key.
+                        key_suffix:
                           type: string
                         outcome:
                           type: string
@@ -2577,10 +2626,26 @@ paths:
                             type: number
                   limit:
                     type: integer
+                  offset:
+                    type: integer
+                  total:
+                    type: integer
+        '400':
+          description: '`invalid_date`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/ForbiddenAdmin'
+        '404':
+          description: '`principal_not_found`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
         '500':
           $ref: '#/components/responses/InternalError'
 
