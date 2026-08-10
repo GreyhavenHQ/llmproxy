@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,6 +29,83 @@ func clientFrom(r *http.Request) string {
 		ua = ua[:clientMaxLen]
 	}
 	return strings.ToValidUTF8(ua, "")
+}
+
+// Tag bounds. Eight pairs is more dimensions than a dashboard can show, and
+// 256 bytes keeps the column a metadata field like client.
+const (
+	tagsHeader   = "x-llmproxy-tags"
+	tagsMaxPairs = 8
+	tagsMaxLen   = 256
+	// tagsRawMaxLen bounds how much header the parser looks at. The output
+	// can never exceed tagsMaxLen, so anything past a few KB only buys the
+	// sender CPU time on the request goroutine.
+	tagsRawMaxLen = 4096
+)
+
+// tagPair is the accepted shape of one "key:value" pair: lowercase
+// alphanumerics, dots, dashes and underscores, starting alphanumeric.
+var tagPair = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*:[a-z0-9][a-z0-9._-]*$`)
+
+// tagKey is the part before the colon. Pairs are validated before this runs,
+// so the separator is always there.
+func tagKey(pair string) string {
+	key, _, _ := strings.Cut(pair, ":")
+	return key
+}
+
+// tagsFrom is the caller's x-llmproxy-tags header, normalised into a
+// canonical "k:v,k:v" string so SQL grouping is stable: pairs trimmed and
+// lowercased, malformed pairs dropped, one value per key (first wins),
+// sorted by key, then capped in count and bytes. Sorting before the caps is
+// what makes the result independent of the order the caller sent. Telemetry
+// never fails a request, so nothing here reports an error. Header metadata
+// only, never content.
+func tagsFrom(r *http.Request) string {
+	raw := r.Header.Get(tagsHeader)
+	if raw == "" {
+		return ""
+	}
+	if len(raw) > tagsRawMaxLen {
+		raw = raw[:tagsRawMaxLen]
+	}
+	seen := make(map[string]bool, tagsMaxPairs)
+	var pairs []string
+	for _, part := range strings.Split(raw, ",") {
+		pair := strings.ToLower(strings.TrimSpace(part))
+		if !tagPair.MatchString(pair) {
+			continue
+		}
+		key := tagKey(pair)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		pairs = append(pairs, pair)
+	}
+	// By key, not by whole pair: ':' sorts after digits, so "app:z" and
+	// "app2:a" would otherwise come back in the surprising order. Keys are
+	// unique by now, so the comparison is total.
+	sort.Slice(pairs, func(i, j int) bool { return tagKey(pairs[i]) < tagKey(pairs[j]) })
+	if len(pairs) > tagsMaxPairs {
+		pairs = pairs[:tagsMaxPairs]
+	}
+	// Drop whole pairs rather than truncate one into a different value; a
+	// pair too long to fit does not stop the shorter ones behind it.
+	out := ""
+	for _, pair := range pairs {
+		next := pair
+		if out != "" {
+			next = out + "," + pair
+		}
+		if len(next) > tagsMaxLen {
+			continue
+		}
+		out = next
+	}
+	// The regexp already excludes non-ASCII, so this is belt and braces
+	// against a future looser pattern; Postgres TEXT rejects broken UTF-8.
+	return strings.ToValidUTF8(out, "")
 }
 
 // usageOutcome carries everything the accounting path needs: identifiers,
@@ -193,6 +272,7 @@ func (s *Server) recordUsage(ctx context.Context, auth *Auth, route *catalog.Rou
 		UpstreamName: route.UpstreamName,
 		Endpoint:     endpoint,
 		Client:       auth.Client,
+		Tags:         auth.Tags,
 		Outcome:      rec.Outcome,
 		Cancelled:    rec.Cancelled,
 		Streamed:     rec.Streamed,

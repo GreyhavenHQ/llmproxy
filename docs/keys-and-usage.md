@@ -128,6 +128,34 @@ No content is ever persisted. The schema has no column that could hold a
 prompt, completion or embedding input, and a test rejects content-shaped
 column names in the DDL.
 
+## Application tags
+
+A key says who is calling; a tag says which of their applications. Callers
+send `x-llmproxy-tags` with comma-separated `key:value` pairs:
+
+```
+x-llmproxy-tags: app:dataindex,context:search
+```
+
+The proxy stores the pairs on the usage event and nothing else about them.
+The header works on both ingresses, including the [transparent
+relay](transparent-relay.md), where it is consumed by the proxy and stripped
+before the request is forwarded.
+
+Values are normalised at capture into one canonical string, so grouping is
+stable: each pair is trimmed and lowercased, must match
+`[a-z0-9][a-z0-9._-]*:[a-z0-9][a-z0-9._-]*`, keys are unique (first
+occurrence wins), pairs are sorted by key, and the list is capped at 8 pairs
+and 256 bytes. Anything malformed is dropped silently: telemetry never fails
+a request.
+
+The stats endpoints take a repeatable `tag=<key>:<value>` filter (exact
+pairs, up to four, narrowing together), `/stats/summary` reports `tags` as a
+dimension, and `/stats/requests/facets` lists the pairs seen in the window.
+The Usage tab's **Apps** subtab draws it: spend, requests and tokens per app,
+the contexts inside an app, and an app-by-model table. Events with no `app`
+tag are grouped as `untagged`, so no traffic drops out of the breakdowns.
+
 ## Pricing
 
 Prices belong to the model. Each binding carries a price per unit, per
@@ -308,8 +336,9 @@ configuration, not visibility. They take the same optional filters:
 `principal=<name>`, `key=<api key id>`, `provider=<name>` (the sentinel
 `transparent:anthropic` included; a deleted provider's events resolve to
 `(deleted)`), `model=<alias>`, `client=<prefix>` (a prefix match on the
-stored User-Agent, so `client=claude-cli` covers every version) and the
-`since`/`until` window.
+stored User-Agent, so `client=claude-cli` covers every version),
+`tag=<key>:<value>` (an exact pair, repeatable up to four times, all of which
+must match) and the `since`/`until` window.
 
 The `key` filter matches API keys only. Relay traffic authenticates with a
 relay token, whose id occupies the same column, so relay events never match a
@@ -318,8 +347,8 @@ key filter and show no key; reach them through
 
 * `GET /stats/series`: the bucketed series above, with the extra filters.
 * `GET /stats/summary`: the window aggregated over every recorded dimension:
-  one row per `(principal, provider, model, endpoint, client)`, so any
-  roll-up (by model, by user, by client) is a client-side sum. **Completed
+  one row per `(principal, provider, model, endpoint, client, tags)`, so any
+  roll-up (by model, by user, by client, by app) is a client-side sum. **Completed
   requests with a model only**: a failure's model and provider are whatever
   the caller asked for, and model-less events (the relay's `count_tokens`
   and `models` calls report no model and no usage) have no place in a
@@ -330,8 +359,8 @@ key filter and show no key; reach them through
   `?offset=` page it; the response carries `{requests, limit, offset,
   total}`, where `total` is the size of the whole filtered set.
 * `GET /stats/requests/facets`: the distinct `principals`, `keys`,
-  `providers`, `models` and `clients` present in the `since`/`until` window,
-  for the explorer's filter options. Derived from every event, not just the
+  `providers`, `models`, `clients` and `tags` present in the `since`/`until`
+  window, for the explorer's filter options. Derived from every event, not just the
   completed ones the summary keeps, so a user or key that has only ever
   failed is still selectable. Each list is capped at 500 values. Key labels
   and last-4 suffixes are visible to every authenticated user here, as the
@@ -350,6 +379,7 @@ curl -s "$P/stats/summary?since=2026-07-01&client=claude-cli" -H "authorization:
       "model": "claude-opus-5",
       "endpoint": "v1/messages",
       "client": "claude-cli/2.0.13 (external, cli)",
+      "tags": "app:dataindex,context:search",
       "requests": 3211,
       "cancelled": 12,
       "cost": 41.20734,
@@ -359,11 +389,12 @@ curl -s "$P/stats/summary?since=2026-07-01&client=claude-cli" -H "authorization:
 }
 ```
 
-This is what the UI draws: the Usage tab (tiles, per-period charts, the model
-share, the client breakdown and the by-user table, filterable by user,
-provider and client) and the Requests tab (the request explorer: a window
-preset or a custom UTC date range, filters for user, key, client, model and
-provider, and numbered pages with a total). The older
+This is what the UI draws: the Usage tab (an Overview subtab with tiles,
+per-period charts, the model share, the client breakdown and the by-user
+table, filterable by user, provider and client, and an Apps subtab breaking
+the same window down by application tag) and the Requests tab (the request
+explorer: a window preset or a custom UTC date range, filters for user, key,
+client, model and provider, and numbered pages with a total). The older
 `/my/usage*` and `/admin/v1/usage*` endpoints stay as documented above.
 
 ## Metrics

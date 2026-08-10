@@ -23,10 +23,10 @@ func (s *Store) InsertUsageEvent(ctx context.Context, ev *UsageEvent, quantities
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, s.q(`
 		INSERT INTO usage_event (id, ts, principal_id, api_key_id, provider_id, alias, upstream_name,
-			endpoint, client, status_code, outcome, cancelled, streamed, cost, unpriced, duration_ms)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			endpoint, client, tags, status_code, outcome, cancelled, streamed, cost, unpriced, duration_ms)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		ev.ID, ev.TS, ev.PrincipalID, ev.APIKeyID, ev.ProviderID, ev.Alias, ev.UpstreamName,
-		ev.Endpoint, ev.Client, ev.StatusCode, ev.Outcome, boolInt(ev.Cancelled), boolInt(ev.Streamed),
+		ev.Endpoint, ev.Client, ev.Tags, ev.StatusCode, ev.Outcome, boolInt(ev.Cancelled), boolInt(ev.Streamed),
 		ev.Cost, boolInt(ev.Unpriced), ev.DurationMs); err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func (s *Store) InsertUsageEvent(ctx context.Context, ev *UsageEvent, quantities
 func (s *Store) ListUsageEvents(ctx context.Context) ([]UsageEvent, error) {
 	rows, err := s.db.QueryContext(ctx, s.q(`
 		SELECT id, ts, principal_id, api_key_id, provider_id, alias, upstream_name, endpoint,
-			client, status_code, outcome, cancelled, streamed, cost, unpriced, duration_ms
+			client, tags, status_code, outcome, cancelled, streamed, cost, unpriced, duration_ms
 		FROM usage_event ORDER BY ts`))
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func (s *Store) ListUsageEvents(ctx context.Context) ([]UsageEvent, error) {
 		var ev UsageEvent
 		var cancelled, streamed, unpriced int64
 		if err := rows.Scan(&ev.ID, &ev.TS, &ev.PrincipalID, &ev.APIKeyID, &ev.ProviderID,
-			&ev.Alias, &ev.UpstreamName, &ev.Endpoint, &ev.Client, &ev.StatusCode, &ev.Outcome,
+			&ev.Alias, &ev.UpstreamName, &ev.Endpoint, &ev.Client, &ev.Tags, &ev.StatusCode, &ev.Outcome,
 			&cancelled, &streamed, &ev.Cost, &unpriced, &ev.DurationMs); err != nil {
 			return nil, err
 		}
@@ -99,7 +99,7 @@ func (s *Store) ListRequests(ctx context.Context, f UsageFilter, limit, offset i
 	// expects; the principal join takes `pp`.
 	rows, err := s.db.QueryContext(ctx, s.q(`
 		SELECT e.id, e.ts, COALESCE(pp.name, e.principal_id), `+providerNameSQL+`, e.alias, e.endpoint,
-			e.client, e.api_key_id, COALESCE(k.label, ''), COALESCE(k.key_suffix, ''), e.outcome,
+			e.client, e.tags, e.api_key_id, COALESCE(k.label, ''), COALESCE(k.key_suffix, ''), e.outcome,
 			e.status_code, e.streamed, e.cancelled, e.cost, e.unpriced, e.duration_ms
 		FROM usage_event e
 			LEFT JOIN principal pp ON e.principal_id = pp.id
@@ -117,7 +117,7 @@ func (s *Store) ListRequests(ctx context.Context, f UsageFilter, limit, offset i
 		var r RequestLogRow
 		var streamed, cancelled, unpriced int64
 		if err := rows.Scan(&r.ID, &r.TS, &r.PrincipalName, &r.Provider, &r.Alias, &r.Endpoint,
-			&r.Client, &r.APIKeyID, &r.KeyLabel, &r.KeySuffix, &r.Outcome,
+			&r.Client, &r.Tags, &r.APIKeyID, &r.KeyLabel, &r.KeySuffix, &r.Outcome,
 			&r.StatusCode, &streamed, &cancelled, &r.Cost, &unpriced, &r.DurationMs); err != nil {
 			return nil, err
 		}
@@ -175,7 +175,7 @@ func (s *Store) CountRequests(ctx context.Context, f UsageFilter) (int64, error)
 // dropdown can use.
 const facetLimit = 500
 
-// RequestFacets lists the distinct filter values present in a window. Five
+// RequestFacets lists the distinct filter values present in a window. Six
 // small scans, fetched only when the window changes.
 func (s *Store) RequestFacets(ctx context.Context, since, until string) (RequestFacets, error) {
 	where, args := usageWhere(UsageFilter{Since: since, Until: until})
@@ -222,6 +222,32 @@ func (s *Store) RequestFacets(ctx context.Context, since, until string) (Request
 		SELECT DISTINCT e.client FROM usage_event e` + where + `
 		ORDER BY e.client LIMIT ` + strconv.Itoa(facetLimit)); err != nil {
 		return out, err
+	}
+
+	// Tags are stored as one canonical list per event, so the distinct lists
+	// are split back into pairs here rather than in SQL.
+	lists, err := strs(`
+		SELECT DISTINCT e.tags FROM usage_event e` + where + ` AND e.tags <> ''
+		ORDER BY e.tags LIMIT ` + strconv.Itoa(facetLimit))
+	if err != nil {
+		return out, err
+	}
+	pairs := make(map[string]bool)
+	for _, list := range lists {
+		for _, pair := range strings.Split(list, ",") {
+			if pair != "" {
+				pairs[pair] = true
+			}
+		}
+	}
+	for pair := range pairs {
+		out.Tags = append(out.Tags, pair)
+	}
+	sort.Strings(out.Tags)
+	// Each list holds up to 8 pairs, so the split can multiply the scan's cap
+	// several times over; every facet list is capped the same way.
+	if len(out.Tags) > facetLimit {
+		out.Tags = out.Tags[:facetLimit]
 	}
 
 	// Keys are the API keys that actually appear in the window; relay tokens
@@ -292,16 +318,27 @@ func addQuantity(units map[string]float64, unit string, quantity float64, anthro
 	}
 }
 
+// likeEscaper neutralises the LIKE metacharacters, so a filter value is
+// matched literally.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
 // likePrefix escapes LIKE metacharacters and appends the wildcard, so the
 // filter value is matched as a literal prefix.
 func likePrefix(value string) string {
-	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return replacer.Replace(value) + "%"
+	return likeEscaper.Replace(value) + "%"
+}
+
+// likeTag matches one exact "key:value" pair inside the stored comma-joined
+// tag list. The list is wrapped in commas on both sides so a pair cannot
+// match a prefix of a longer one.
+func likeTag(pair string) string {
+	return "%," + likeEscaper.Replace(pair) + ",%"
 }
 
 // usageWhere builds the WHERE clause shared by the usage aggregates. The
 // provider filter matches the resolved provider name, so every query using it
-// must join `LEFT JOIN provider p ON e.provider_id = p.id`.
+// must join `LEFT JOIN provider p ON e.provider_id = p.id`. Tag entries
+// narrow together: an event must carry every pair asked for.
 func usageWhere(f UsageFilter) (string, []any) {
 	where := ` WHERE 1=1`
 	var args []any
@@ -324,6 +361,11 @@ func usageWhere(f UsageFilter) (string, []any) {
 	if f.Client != "" {
 		where += ` AND e.client LIKE ? ESCAPE '\'`
 		args = append(args, likePrefix(f.Client))
+	}
+	// || is the portable string concatenation in both dialects.
+	for _, pair := range f.Tags {
+		where += ` AND (',' || e.tags || ',') LIKE ? ESCAPE '\'`
+		args = append(args, likeTag(pair))
 	}
 	if f.Since != "" {
 		where += ` AND e.ts >= ?`
@@ -396,7 +438,7 @@ func (s *Store) UsageSummary(ctx context.Context, principalID, since, until stri
 }
 
 // UsageBreakdown aggregates the filter window across every recorded dimension:
-// (principal, provider, alias, endpoint, client), with per-unit sums. One
+// (principal, provider, alias, endpoint, client, tags), with per-unit sums. One
 // query feeds every roll-up the dashboard shows, and the distinct values
 // double as its filter options. Only completed (ok or cancelled) requests
 // that carry a model count: a failure's model and provider are whatever the
@@ -406,9 +448,9 @@ func (s *Store) UsageSummary(ctx context.Context, principalID, since, until stri
 func (s *Store) UsageBreakdown(ctx context.Context, f UsageFilter) ([]UsageBreakdownRow, error) {
 	where, args := usageWhere(f)
 	where += completedSQL + ` AND e.alias <> ''`
-	const dims = `e.principal_id, ` + providerNameSQL + `, e.alias, e.endpoint, e.client`
+	const dims = `e.principal_id, ` + providerNameSQL + `, e.alias, e.endpoint, e.client, e.tags`
 
-	rowsByKey := make(map[[5]string]*UsageBreakdownRow)
+	rowsByKey := make(map[[6]string]*UsageBreakdownRow)
 	events, err := s.db.QueryContext(ctx, s.q(`
 		SELECT `+dims+`, COUNT(*), SUM(e.cost), SUM(e.cancelled)
 		FROM usage_event e LEFT JOIN provider p ON e.provider_id = p.id`+where+`
@@ -419,12 +461,12 @@ func (s *Store) UsageBreakdown(ctx context.Context, f UsageFilter) ([]UsageBreak
 	defer events.Close()
 	for events.Next() {
 		var r UsageBreakdownRow
-		if err := events.Scan(&r.PrincipalID, &r.Provider, &r.Alias, &r.Endpoint, &r.Client,
+		if err := events.Scan(&r.PrincipalID, &r.Provider, &r.Alias, &r.Endpoint, &r.Client, &r.Tags,
 			&r.Requests, &r.Cost, &r.Cancelled); err != nil {
 			return nil, err
 		}
 		r.Units = make(map[string]float64)
-		rowsByKey[[5]string{r.PrincipalID, r.Provider, r.Alias, r.Endpoint, r.Client}] = &r
+		rowsByKey[[6]string{r.PrincipalID, r.Provider, r.Alias, r.Endpoint, r.Client, r.Tags}] = &r
 	}
 	if err := events.Err(); err != nil {
 		return nil, err
@@ -440,16 +482,17 @@ func (s *Store) UsageBreakdown(ctx context.Context, f UsageFilter) ([]UsageBreak
 	}
 	defer quantities.Close()
 	for quantities.Next() {
-		var key [5]string
+		var key [6]string
 		var unit string
 		var quantity float64
-		if err := quantities.Scan(&key[0], &key[1], &key[2], &key[3], &key[4], &unit, &quantity); err != nil {
+		if err := quantities.Scan(&key[0], &key[1], &key[2], &key[3], &key[4], &key[5],
+			&unit, &quantity); err != nil {
 			return nil, err
 		}
 		row, ok := rowsByKey[key]
 		if !ok {
 			row = &UsageBreakdownRow{PrincipalID: key[0], Provider: key[1], Alias: key[2],
-				Endpoint: key[3], Client: key[4], Units: make(map[string]float64)}
+				Endpoint: key[3], Client: key[4], Tags: key[5], Units: make(map[string]float64)}
 			rowsByKey[key] = row
 		}
 		addQuantity(row.Units, unit, quantity, key[1] == anthropicProviderID)

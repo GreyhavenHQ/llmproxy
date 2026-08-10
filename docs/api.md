@@ -36,6 +36,13 @@ OpenAI-shaped with an added `llmproxy.source` field plus
 `x-llmproxy-error-source: proxy|upstream`; upstream error bodies and status
 codes pass through intact.
 
+Requests may carry `x-llmproxy-tags`, a comma-separated list of `key:value`
+pairs (`app:dataindex,context:search`) naming the calling application. The
+proxy stores the normalised list on the usage event and the Usage tab's Apps
+subtab breaks spend down by it; see
+[keys-and-usage.md](keys-and-usage.md#application-tags). Malformed pairs are
+dropped rather than rejected, and the header never reaches an upstream.
+
 No request or response content is ever logged or persisted, and there is no
 flag to turn that on; see [architecture.md](architecture.md).
 
@@ -63,22 +70,25 @@ set), `invalid_json`, `model_required`, `request_too_large` (413),
 
 The proxy's usage is team-visible by design; the admin role gates
 configuration, not visibility. Every endpoint accepts the same filters:
-`principal`, `key` (an API key id), `provider`, `model`, `client` and the
-`since`/`until` window; see
-[keys-and-usage.md](keys-and-usage.md#team-statistics).
+`principal`, `key` (an API key id), `provider`, `model`, `client`, `tag` and
+the `since`/`until` window; see
+[keys-and-usage.md](keys-and-usage.md#team-statistics). `tag` takes one exact
+`key:value` pair, is repeatable up to four times, and several pairs narrow
+together; a pair nothing carries simply matches nothing.
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /stats/series?bucket&since&until` | Bucketed usage across everyone |
-| `GET /stats/summary?since&until` | Usage aggregated per (principal, provider, model, endpoint, client) |
+| `GET /stats/summary?since&until` | Usage aggregated per (principal, provider, model, endpoint, client, tags) |
 | `GET /stats/requests?limit&offset` | One page of the filtered request metadata log (never content), newest first; returns `{requests, limit, offset, total}` |
-| `GET /stats/requests/facets?since&until` | Distinct principals, keys, providers, models and clients in the window, for the explorer's filter options |
+| `GET /stats/requests/facets?since&until` | Distinct principals, keys, providers, models, clients and tags in the window, for the explorer's filter options |
 
 ## Transparent Anthropic relay (`/transparent/anthropic`)
 
 `{ANY} /transparent/anthropic/{token}/{path...}` forwards verbatim to the
 configured Anthropic base URL: method, path suffix, query, headers (minus
-hop-by-hop, `Cookie` and `Accept-Encoding`) and body untouched, the caller's
+hop-by-hop, `Cookie`, `Accept-Encoding` and `x-llmproxy-tags`) and body
+untouched, the caller's
 own `x-api-key` or OAuth bearer passed through. The relay token attributes
 usage to a principal and authenticates nothing else; API keys are rejected
 here and relay tokens are rejected everywhere else. Usage is read off the

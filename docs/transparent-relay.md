@@ -107,9 +107,11 @@ Any other Anthropic SDK or tool that honours a base URL works the same way.
 Forwarded verbatim: method, path suffix, query string, request body (streamed
 unbuffered, no size cap, no field rewrites), response body (SSE flushed
 chunk-by-chunk), and headers in both directions apart from hop-by-hop
-headers, `Cookie` (proxy-local browser state) and `Accept-Encoding` (dropped
+headers, `Cookie` (proxy-local browser state), `Accept-Encoding` (dropped
 so the response arrives unencoded and usage stays readable; clients that
-asked for gzip still get a correct identity response). Anthropic's
+asked for gzip still get a correct identity response) and `x-llmproxy-tags`
+(addressed to the proxy: read for accounting, then stripped before
+forwarding). Anthropic's
 `request-id` and rate-limit headers come back untouched. Client disconnects
 cancel the upstream request.
 
@@ -139,6 +141,9 @@ Each relayed request writes one `usage_event`:
   (Claude Code sends `claude-cli/<version> ...`), so different tools behind
   the same token stay distinguishable. Header metadata only, like everything
   else here.
+* `tags` is the caller's `x-llmproxy-tags` header, normalised the same way as
+  on `/v1`, so relay traffic shows up in the Usage tab's Apps subtab too. See
+  [keys-and-usage.md](keys-and-usage.md#application-tags).
 * Outcome, status code, streamed/cancelled flags and duration behave exactly
   as on `/v1`; a mid-stream client disconnect records the partial usage
   reported so far, flagged `cancelled`.

@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/monadical/llmproxy/internal/store"
 )
@@ -11,11 +12,18 @@ import (
 // with the full filter set (principal, provider, client). Everything here is
 // metadata only; no request or response content exists to expose.
 
+// maxTagFilters caps the repeatable tag parameter: more dimensions than any
+// caller narrows by at once, and it bounds the LIKE clauses per query.
+const maxTagFilters = 4
+
 // statsFilter reads the common query filters. principal is resolved from name
 // to id (writing the error response on failure); provider matches the
 // resolved provider name; client is a prefix match on the stored User-Agent;
-// key is an API key id, which relay traffic never carries. since and until
-// bound the window on the stored UTC timestamp.
+// key is an API key id, which relay traffic never carries. tag is repeatable
+// and takes an exact "key:value" pair, lowercased like the stored value,
+// several of which narrow together; a value that matches nothing simply
+// returns nothing. since and until bound the window on the stored UTC
+// timestamp.
 func (s *Server) statsFilter(w http.ResponseWriter, r *http.Request) (store.UsageFilter, bool) {
 	principalID, ok := s.principalFilter(w, r)
 	if !ok {
@@ -31,12 +39,23 @@ func (s *Server) statsFilter(w http.ResponseWriter, r *http.Request) (store.Usag
 		writeProxyError(w, perr)
 		return store.UsageFilter{}, false
 	}
+	// Lowercased to match what capture stores. Without this the two backends
+	// disagree: SQLite's LIKE is ASCII-case-insensitive, Postgres' is not, so
+	// an uppercase filter would match on one and not the other.
+	tags := r.URL.Query()["tag"]
+	if len(tags) > maxTagFilters {
+		tags = tags[:maxTagFilters]
+	}
+	for i, tag := range tags {
+		tags[i] = strings.ToLower(tag)
+	}
 	return store.UsageFilter{
 		PrincipalID: principalID,
 		APIKeyID:    r.URL.Query().Get("key"),
 		Provider:    r.URL.Query().Get("provider"),
 		Model:       r.URL.Query().Get("model"),
 		Client:      r.URL.Query().Get("client"),
+		Tags:        tags,
 		Since:       since,
 		Until:       until,
 	}, true
@@ -51,7 +70,7 @@ func (s *Server) handleStatsSeries(w http.ResponseWriter, r *http.Request, auth 
 }
 
 // handleStatsSummary returns the window aggregated over every recorded
-// dimension: one row per (principal, provider, model, endpoint, client). The
+// dimension: one row per (principal, provider, model, endpoint, client, tags). The
 // UI rolls these up per dimension and derives its filter options from the
 // distinct values.
 func (s *Server) handleStatsSummary(w http.ResponseWriter, r *http.Request, auth *Auth) {
@@ -85,6 +104,7 @@ func (s *Server) handleStatsSummary(w http.ResponseWriter, r *http.Request, auth
 			"model":     row.Alias,
 			"endpoint":  row.Endpoint,
 			"client":    row.Client,
+			"tags":      row.Tags,
 			"requests":  row.Requests,
 			"cancelled": row.Cancelled,
 			"cost":      nil,
@@ -135,6 +155,7 @@ func (s *Server) handleStatsFacets(w http.ResponseWriter, r *http.Request, auth 
 		"providers":  strsOrEmpty(facets.Providers),
 		"models":     strsOrEmpty(facets.Models),
 		"clients":    strsOrEmpty(facets.Clients),
+		"tags":       strsOrEmpty(facets.Tags),
 		"keys":       keys,
 	})
 }

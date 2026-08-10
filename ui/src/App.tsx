@@ -90,16 +90,27 @@ function ThemeToggle() {
 // tab with a sub-nav, keeping the member-facing nav identical for everyone.
 const ADMIN_SUBS = ['providers', 'models', 'users', 'services', 'all-keys']
 
-function tabsFromLocation(isAdmin: boolean): { tab: string; sub: string } {
-  let seg = window.location.pathname.replace(/^\/+/, '').split('/')[0]
+// The Usage tab has its own second segment (/usage/apps), kept in a separate
+// field so the admin sub-nav is untouched by it.
+const USAGE_SUBS = ['overview', 'apps']
+
+interface Nav {
+  tab: string
+  sub: string
+  usageSub: string
+}
+
+function tabsFromLocation(isAdmin: boolean): Nav {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/')
+  let seg = segments[0]
   if (seg === 'activity') seg = 'requests' // pre-rename bookmarks
   if (isAdmin && ADMIN_SUBS.includes(seg)) {
-    return { tab: 'admin', sub: seg }
+    return { tab: 'admin', sub: seg, usageSub: 'overview' }
   }
-  return {
-    tab: ['usage', 'requests', 'keys', 'playground'].includes(seg) ? seg : 'usage',
-    sub: 'providers',
-  }
+  const tab = ['usage', 'requests', 'keys', 'playground'].includes(seg) ? seg : 'usage'
+  const usageSub =
+    tab === 'usage' && USAGE_SUBS.includes(segments[1]) ? segments[1] : 'overview'
+  return { tab, sub: 'providers', usageSub }
 }
 
 function Shell({ me }: { me: Me }) {
@@ -112,15 +123,19 @@ function Shell({ me }: { me: Me }) {
     return () => window.removeEventListener('popstate', onPop)
   }, [isAdmin])
 
-  const push = (next: { tab: string; sub: string }) => {
+  const push = (next: Nav) => {
     setNav(next)
-    const path = '/' + (next.tab === 'admin' ? next.sub : next.tab)
+    let path = '/' + (next.tab === 'admin' ? next.sub : next.tab)
+    if (next.tab === 'usage' && next.usageSub !== 'overview') {
+      path += '/' + next.usageSub
+    }
     if (window.location.pathname !== path) {
       window.history.pushState(null, '', path)
     }
   }
   const navigate = (tab: string) => push({ ...nav, tab })
-  const navigateSub = (sub: string) => push({ tab: 'admin', sub })
+  const navigateSub = (sub: string) => push({ ...nav, tab: 'admin', sub })
+  const navigateUsageSub = (usageSub: string) => push({ ...nav, tab: 'usage', usageSub })
 
   return (
     <Tabs value={nav.tab} onValueChange={navigate}>
@@ -174,7 +189,11 @@ function Shell({ me }: { me: Me }) {
           main column to its content and every tab would be a different width. */}
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
         <TabsContent value="usage">
-          <Usage ssoEnabled={me.sso_enabled} />
+          <Usage
+            ssoEnabled={me.sso_enabled}
+            sub={nav.usageSub}
+            onSubChange={navigateUsageSub}
+          />
         </TabsContent>
         <TabsContent value="requests">
           <Requests />

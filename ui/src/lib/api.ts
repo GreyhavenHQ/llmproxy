@@ -95,10 +95,28 @@ export interface StatsRow {
   model: string
   endpoint: string
   client: string
+  // tags is the canonical "key:value,key:value" list from the request's
+  // x-llmproxy-tags header; empty when the caller sent none.
+  tags: string
   requests: number
   cancelled: number
   cost: number | null
   units: Record<string, number>
+}
+
+// tagValue reads one key out of a stored tag list ("app:x,context:y").
+// Returns '' when the key is absent.
+export function tagValue(tags: string, key: string): string {
+  for (const pair of tags.split(',')) {
+    const at = pair.indexOf(':')
+    if (at > 0 && pair.slice(0, at) === key) return pair.slice(at + 1)
+  }
+  return ''
+}
+
+// tagPairs splits a stored tag list into its pairs, dropping the empty case.
+export function tagPairs(tags: string): string[] {
+  return tags ? tags.split(',').filter(Boolean) : []
 }
 
 // clientProduct reduces a stored User-Agent to its versioned product token
@@ -168,6 +186,7 @@ export interface RequestRow {
   model: string
   endpoint: string
   client: string
+  tags: string
   // key_label and key_suffix are empty when the request carried no API key:
   // relay traffic, or a key deleted since.
   key_id: string
@@ -204,6 +223,7 @@ export interface RequestFacets {
   providers: string[]
   models: string[]
   clients: string[]
+  tags: string[]
   keys: FacetKey[]
 }
 

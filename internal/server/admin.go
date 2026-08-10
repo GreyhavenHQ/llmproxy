@@ -1083,6 +1083,7 @@ func (s *Server) serveRequestLog(w http.ResponseWriter, r *http.Request) {
 			"model":       ev.Alias,
 			"endpoint":    ev.Endpoint,
 			"client":      ev.Client,
+			"tags":        ev.Tags,
 			"key_id":      ev.APIKeyID,
 			"key_label":   ev.KeyLabel,
 			"key_suffix":  ev.KeySuffix,

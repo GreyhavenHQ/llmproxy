@@ -15,6 +15,7 @@ import {
   formatDate,
   formatNumber,
   formatTokens,
+  tagPairs,
   type RequestFacets,
   type RequestPage,
   type RequestRow,
@@ -320,6 +321,7 @@ export function Requests() {
                   <TableHead>Model</TableHead>
                   <TableHead>Endpoint</TableHead>
                   <TableHead>Client</TableHead>
+                  <TableHead>Tags</TableHead>
                   <TableHead>Outcome</TableHead>
                   <TableHead className="text-right">Input</TableHead>
                   <TableHead className="text-right">Output</TableHead>
@@ -331,7 +333,7 @@ export function Requests() {
               <TableBody>
                 {shown === 0 && (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-muted-foreground">
+                    <TableCell colSpan={12} className="text-muted-foreground">
                       {filtered || since
                         ? 'No requests match these filters.'
                         : 'No requests recorded yet.'}
@@ -351,6 +353,19 @@ export function Requests() {
                     <TableCell className="font-mono text-xs" title={r.client || undefined}>
                       {r.client ? (
                         clientFamily(r.client)
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {r.tags ? (
+                        <span className="flex flex-wrap gap-1">
+                          {tagPairs(r.tags).map((pair) => (
+                            <Badge key={pair} variant="tag" size="sm" className="font-mono">
+                              {pair}
+                            </Badge>
+                          ))}
+                        </span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}

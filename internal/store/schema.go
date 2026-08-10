@@ -93,8 +93,10 @@ CREATE TABLE IF NOT EXISTS model_binding (
     created_at TEXT NOT NULL,
     target_id TEXT REFERENCES model_binding(id)
 );
--- client is the caller's User-Agent header, truncated. Header metadata only,
--- never request or response content.
+-- client is the caller's User-Agent header, truncated. tags is the caller's
+-- x-llmproxy-tags header, normalised to a canonical comma-separated
+-- "key:value" list. Both are header metadata only, never request or response
+-- content.
 CREATE TABLE IF NOT EXISTS usage_event (
     id TEXT PRIMARY KEY,
     ts TEXT NOT NULL,
@@ -105,6 +107,7 @@ CREATE TABLE IF NOT EXISTS usage_event (
     upstream_name TEXT NOT NULL,
     endpoint TEXT NOT NULL,
     client TEXT NOT NULL DEFAULT '',
+    tags TEXT NOT NULL DEFAULT '',
     status_code INTEGER,
     outcome TEXT NOT NULL,
     cancelled INTEGER NOT NULL DEFAULT 0,

@@ -69,6 +69,7 @@ func (s *Store) Init(ctx context.Context) error {
 		`ALTER TABLE model_binding ADD COLUMN target_id TEXT REFERENCES model_binding(id)`,
 		`ALTER TABLE principal ADD COLUMN sessions_revoked_before TEXT`,
 		`ALTER TABLE usage_event ADD COLUMN client TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE usage_event ADD COLUMN tags TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = s.db.ExecContext(ctx, stmt)
 	}

@@ -3,6 +3,8 @@ package server_test
 import (
 	"context"
 	"net/http"
+	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -54,6 +56,61 @@ func TestClientCapturedOnTransparentRelay(t *testing.T) {
 	ev := e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.ProviderID == "transparent:anthropic" })
 	if ev.Client != "claude-cli/2.1.0 (external, cli)" {
 		t.Fatalf("client = %q, want the User-Agent", ev.Client)
+	}
+}
+
+func TestTagsCapturedOnIngress(t *testing.T) {
+	e := newEnv(t)
+	req, err := http.NewRequest("POST", e.proxy.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"alpha","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+e.memberKey)
+	req.Header.Set("Content-Type", "application/json")
+	// Reversed order, mixed case and one malformed pair: the stored value is
+	// the canonical form.
+	req.Header.Set("x-llmproxy-tags", "Context:Search, junk ,app:DataIndex")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("chat completion failed: %d", resp.StatusCode)
+	}
+	ev := e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Alias == "alpha" })
+	if ev.Tags != "app:dataindex,context:search" {
+		t.Fatalf("tags = %q, want the canonical pair list", ev.Tags)
+	}
+}
+
+// The relay captures tags the same way, and the header stops at the proxy:
+// it is addressed to llmproxy, not to Anthropic.
+func TestTagsCapturedOnTransparentRelay(t *testing.T) {
+	e := newEnv(t)
+	req, err := http.NewRequest("POST", e.proxy.URL+"/transparent/anthropic/"+e.relayToken+"/v1/messages",
+		strings.NewReader(`{"model":"claude-fake-1","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("x-api-key", anthropicKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-llmproxy-tags", "app:agent,context:review")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("relay request failed: %d", resp.StatusCode)
+	}
+	ev := e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.ProviderID == "transparent:anthropic" })
+	if ev.Tags != "app:agent,context:review" {
+		t.Fatalf("tags = %q, want app:agent,context:review", ev.Tags)
+	}
+	if got := e.anthropic.last(t).Header.Get("x-llmproxy-tags"); got != "" {
+		t.Fatalf("the relay forwarded x-llmproxy-tags upstream: %q", got)
 	}
 }
 
@@ -346,7 +403,8 @@ func TestStatsSummaryExcludesModellessEvents(t *testing.T) {
 }
 
 // seedTwoRequests records one /v1 event (admin key, provider "fake") and one
-// relay event (bob's relay token, sentinel provider), with distinct clients.
+// relay event (bob's relay token, sentinel provider), with distinct clients
+// and distinct tags.
 func seedTwoRequests(t *testing.T, e *env) {
 	t.Helper()
 	req, _ := http.NewRequest("POST", e.proxy.URL+"/v1/chat/completions",
@@ -354,6 +412,7 @@ func seedTwoRequests(t *testing.T, e *env) {
 	req.Header.Set("Authorization", "Bearer "+e.adminKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "openai-python/1.51.0")
+	req.Header.Set("x-llmproxy-tags", "app:dataindex,context:search")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("chat completion failed: %v", err)
@@ -364,6 +423,7 @@ func seedTwoRequests(t *testing.T, e *env) {
 	req.Header.Set("x-api-key", anthropicKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "claude-cli/2.0.13 (external, cli)")
+	req.Header.Set("x-llmproxy-tags", "app:agent")
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("relay request failed: %v", err)
@@ -480,6 +540,71 @@ func TestRequestExplorerFilters(t *testing.T) {
 	// Quantities follow the paged rows, not a re-derived newest-N set.
 	if units, _ := first[0].(map[string]any)["units"].(map[string]any); len(units) == 0 {
 		t.Fatalf("paged row lost its quantities: %v", first[0])
+	}
+}
+
+// TestTagFilter: the repeatable tag parameter matches exact pairs, several
+// narrow together, and the facets endpoint lists the pairs in the window.
+func TestTagFilter(t *testing.T) {
+	e := newEnv(t)
+	seedTwoRequests(t, e)
+
+	get := func(path string) map[string]any {
+		t.Helper()
+		resp, data := e.request(t, "GET", path, e.memberKey, nil)
+		if resp.StatusCode != 200 {
+			t.Fatalf("GET %s = %d: %s", path, resp.StatusCode, data)
+		}
+		return decode(t, data)
+	}
+	totalFor := func(query string) float64 {
+		t.Helper()
+		total, _ := get("/stats/requests" + query)["total"].(float64)
+		return total
+	}
+
+	if total := totalFor(""); total != 2 {
+		t.Fatalf("unfiltered total = %v, want 2", total)
+	}
+	if total := totalFor("?tag=app:dataindex"); total != 1 {
+		t.Fatalf("tag filter total = %v, want 1", total)
+	}
+	// Two tags AND together.
+	if total := totalFor("?tag=app:dataindex&tag=context:search"); total != 1 {
+		t.Fatalf("two matching tags total = %v, want 1", total)
+	}
+	if total := totalFor("?tag=app:dataindex&tag=context:nope"); total != 0 {
+		t.Fatalf("conflicting tags total = %v, want 0", total)
+	}
+	// A pair must match whole: "app:data" is not "app:dataindex".
+	if total := totalFor("?tag=app:data"); total != 0 {
+		t.Fatalf("partial pair total = %v, want 0", total)
+	}
+	// Capture lowercases, so the filter does too: an uppercase value must
+	// match, and identically on both backends (SQLite's LIKE is
+	// case-insensitive, Postgres' is not).
+	if total := totalFor("?tag=App:DataIndex"); total != 1 {
+		t.Fatalf("uppercase tag filter total = %v, want 1", total)
+	}
+	// LIKE metacharacters are escaped, not interpreted.
+	if total := totalFor("?tag=" + url.QueryEscape("app:%")); total != 0 {
+		t.Fatalf("wildcard tag total = %v, want 0", total)
+	}
+	// The row carries its tags back for display.
+	rows, _ := get("/stats/requests?tag=app:dataindex")["requests"].([]any)
+	if len(rows) != 1 || rows[0].(map[string]any)["tags"] != "app:dataindex,context:search" {
+		t.Fatalf("request row tags = %v", rows)
+	}
+	// The summary honours the same filter and reports the dimension.
+	summary, _ := get("/stats/summary?tag=app:agent")["usage"].([]any)
+	if len(summary) != 1 || summary[0].(map[string]any)["tags"] != "app:agent" {
+		t.Fatalf("summary tags = %v", summary)
+	}
+
+	facets, _ := get("/stats/requests/facets")["tags"].([]any)
+	want := []any{"app:agent", "app:dataindex", "context:search"}
+	if !reflect.DeepEqual(facets, want) {
+		t.Fatalf("facets tags = %v, want %v", facets, want)
 	}
 }
 

@@ -21,6 +21,9 @@ type Auth struct {
 	// Client is the request's truncated User-Agent, set by withAuth so usage
 	// recording can attribute traffic to the tool that sent it.
 	Client string
+	// Tags is the normalised x-llmproxy-tags header, set by withAuth so usage
+	// recording can attribute traffic to the calling application.
+	Tags string
 	// ViaSession marks browser-session auth (the built-in UI). Sessions carry
 	// the principal's role; mutations are origin-checked in sessionAuth.
 	ViaSession bool
@@ -172,6 +175,7 @@ func (s *Server) withAuth(next func(http.ResponseWriter, *http.Request, *Auth)) 
 			return
 		}
 		auth.Client = clientFrom(r)
+		auth.Tags = tagsFrom(r)
 		next(w, r, auth)
 	})
 }

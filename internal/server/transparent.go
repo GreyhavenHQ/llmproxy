@@ -132,9 +132,11 @@ func (s *Server) handleTransparentAnthropic(w http.ResponseWriter, r *http.Reque
 	req.ContentLength = r.ContentLength
 	copyEndToEndHeaders(req.Header, r.Header)
 	// Cookies are proxy-local browser state; Accept-Encoding is dropped so
-	// the response arrives unencoded and usage stays extractable.
+	// the response arrives unencoded and usage stays extractable; the tags
+	// header is addressed to the proxy and has no business upstream.
 	req.Header.Del("Cookie")
 	req.Header.Del("Accept-Encoding")
+	req.Header.Del(tagsHeader)
 
 	started := time.Now()
 	resp, err := s.transparent.Do(req)
@@ -143,7 +145,7 @@ func (s *Server) handleTransparentAnthropic(w http.ResponseWriter, r *http.Reque
 		if r.Context().Err() != nil {
 			outcome, cancelled = "cancelled", true
 		}
-		s.recordTransparentAsync(relay, r.Method, "", endpoint, clientFrom(r), usageOutcome{
+		s.recordTransparentAsync(relay, r.Method, "", endpoint, clientFrom(r), tagsFrom(r), usageOutcome{
 			Outcome: outcome, Cancelled: cancelled,
 			DurationMs: time.Since(started).Milliseconds(),
 		})
@@ -210,7 +212,7 @@ func (s *Server) relayTransparentUnary(w http.ResponseWriter, r *http.Request,
 			model, usage = doc.Model, doc.Usage
 		}
 	}
-	s.recordTransparentAsync(relay, r.Method, model, endpoint, clientFrom(r), usageOutcome{
+	s.recordTransparentAsync(relay, r.Method, model, endpoint, clientFrom(r), tagsFrom(r), usageOutcome{
 		StatusCode: resp.StatusCode, Outcome: outcome, Cancelled: cancelled,
 		Usage: usage, DurationMs: time.Since(started).Milliseconds(),
 	})
@@ -278,7 +280,7 @@ func (s *Server) relayTransparentStream(w http.ResponseWriter, r *http.Request,
 			model = m
 		}
 	}
-	s.recordTransparentAsync(relay, r.Method, model, endpoint, clientFrom(r), usageOutcome{
+	s.recordTransparentAsync(relay, r.Method, model, endpoint, clientFrom(r), tagsFrom(r), usageOutcome{
 		StatusCode: resp.StatusCode, Outcome: outcome, Cancelled: cancelled,
 		Streamed: true, Usage: usage, DurationMs: time.Since(started).Milliseconds(),
 	})
@@ -311,7 +313,7 @@ func parseAnthropicSSELine(line []byte) (string, map[string]any) {
 	return doc.Message.Model, doc.Message.Usage
 }
 
-func (s *Server) recordTransparentAsync(relay *store.RelayAuthResult, method, model, endpoint, client string, rec usageOutcome) {
+func (s *Server) recordTransparentAsync(relay *store.RelayAuthResult, method, model, endpoint, client, tags string, rec usageOutcome) {
 	// HEAD and OPTIONS are connectivity probes (Claude Code sends one per
 	// session start): nothing to meter, and Anthropic's root answers them
 	// 404, so recording would fill the request log with phantom failures.
@@ -327,6 +329,7 @@ func (s *Server) recordTransparentAsync(relay *store.RelayAuthResult, method, mo
 			UpstreamName: model,
 			Endpoint:     endpoint,
 			Client:       client,
+			Tags:         tags,
 			Outcome:      rec.Outcome,
 			Cancelled:    rec.Cancelled,
 			Streamed:     rec.Streamed,

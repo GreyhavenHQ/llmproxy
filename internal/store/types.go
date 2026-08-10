@@ -90,7 +90,10 @@ type UsageEvent struct {
 	Endpoint     string
 	// Client is the caller's User-Agent header, truncated at capture time.
 	// Header metadata only, never content.
-	Client     string
+	Client string
+	// Tags is the caller's x-llmproxy-tags header, normalised at capture time
+	// into a canonical "key:value,key:value" string. Header metadata only.
+	Tags       string
 	StatusCode sql.NullInt64
 	Outcome    string
 	Cancelled  bool
@@ -145,6 +148,7 @@ type RequestLogRow struct {
 	Alias         string
 	Endpoint      string
 	Client        string
+	Tags          string
 	APIKeyID      string
 	KeyLabel      string
 	KeySuffix     string
@@ -169,7 +173,10 @@ type RequestFacets struct {
 	Providers  []string
 	Models     []string
 	Clients    []string
-	Keys       []FacetKey
+	// Tags are the distinct "key:value" pairs seen in the window, split out
+	// of the stored per-event lists.
+	Tags []string
+	Keys []FacetKey
 }
 
 // FacetKey is one API key offered as a filter option. Labels and suffixes are
@@ -196,26 +203,30 @@ type UsageSummaryRow struct {
 // Model matches the alias the caller used. Client is a prefix match on the
 // stored User-Agent, so a product token like "claude-cli" covers every
 // version. APIKeyID matches the key the request authenticated with; relay
-// traffic carries a relay token id there and so never matches.
+// traffic carries a relay token id there and so never matches. Tags holds
+// exact "key:value" pairs, each matched against the event's stored tag list;
+// several entries narrow together.
 type UsageFilter struct {
 	PrincipalID string
 	APIKeyID    string
 	Provider    string
 	Model       string
 	Client      string
+	Tags        []string
 	Since       string
 	Until       string
 }
 
 // UsageBreakdownRow is one cell of the full-dimensional aggregate: usage for
-// the filter window grouped by principal, provider, model, endpoint and
-// client. The UI rolls these up into whichever dimension it displays.
+// the filter window grouped by principal, provider, model, endpoint, client
+// and tags. The UI rolls these up into whichever dimension it displays.
 type UsageBreakdownRow struct {
 	PrincipalID string
 	Provider    string
 	Alias       string
 	Endpoint    string
 	Client      string
+	Tags        string
 	Requests    int64
 	Cancelled   int64
 	Cost        sql.NullFloat64
