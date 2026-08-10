@@ -33,6 +33,7 @@ import {
   foldDonut,
   SERIES_ACCENT,
   SERIES_GRAY,
+  SERIES_GRAY_MID,
   ShareBars,
   StatTile,
   type ChartPoint,
@@ -168,10 +169,12 @@ export function AppsUsage() {
 
   const input = (b: UsageBucket) => b.units['input_tokens'] ?? 0
   const output = (b: UsageBucket) => b.units['output_tokens'] ?? 0
+  const cached = (b: UsageBucket) => b.units['cached_input_tokens'] ?? 0
   const tokens = (b: UsageBucket) => input(b) + output(b)
 
   const requests = sum(buckets, (b) => b.requests)
   const tokensTotal = sum(buckets, tokens)
+  const cachedTotal = sum(buckets, cached)
   const costTotal = sum(buckets, (b) => b.cost ?? 0)
   const priced = buckets.some((b) => b.cost !== null)
   const unpricedRequests = sum(buckets, (b) => b.unpriced_requests)
@@ -198,7 +201,7 @@ export function AppsUsage() {
   const tokenPoints: ChartPoint[] = buckets.map((b) => ({
     label: label(b),
     title: title(b),
-    values: [input(b), output(b)],
+    values: [input(b), cached(b), output(b)],
   }))
 
   // ---------- summary-derived breakdowns and filter options ----------
@@ -391,6 +394,7 @@ export function AppsUsage() {
             <StatTile
               label="Tokens"
               value={formatCompact(tokensTotal)}
+              secondary={cachedTotal > 0 ? `${formatCompact(cachedTotal)} cached` : undefined}
               delta={delta(tokensTotal, sum(previous, tokens), comparable)}
             />
           </div>
@@ -421,6 +425,7 @@ export function AppsUsage() {
                         <TableHead className="text-right">Share</TableHead>
                         <TableHead className="text-right">Requests</TableHead>
                         <TableHead className="text-right">Input</TableHead>
+                        <TableHead className="text-right">Cached</TableHead>
                         <TableHead className="text-right">Output</TableHead>
                         <TableHead className="text-right">Spend</TableHead>
                       </TableRow>
@@ -428,7 +433,7 @@ export function AppsUsage() {
                     <TableBody>
                       {byApp.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-muted-foreground">
+                          <TableCell colSpan={7} className="text-muted-foreground">
                             No usage in this range.
                           </TableCell>
                         </TableRow>
@@ -449,6 +454,14 @@ export function AppsUsage() {
                             title={formatTokens(a.units['input_tokens'])}
                           >
                             {a.units['input_tokens'] ? formatCompact(a.units['input_tokens']) : ''}
+                          </TableCell>
+                          <TableCell
+                            className="text-right tabular-nums"
+                            title={formatTokens(a.units['cached_input_tokens'])}
+                          >
+                            {a.units['cached_input_tokens']
+                              ? formatCompact(a.units['cached_input_tokens'])
+                              : ''}
                           </TableCell>
                           <TableCell
                             className="text-right tabular-nums"
@@ -545,7 +558,7 @@ export function AppsUsage() {
             <CardHeader>
               <CardTitle className="font-serif">Tokens</CardTitle>
               <CardDescription>
-                Input and output per {range.bucket}; cached input included.
+                Input, cached input and output per {range.bucket}.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -553,6 +566,7 @@ export function AppsUsage() {
                 points={tokenPoints}
                 series={[
                   { ...SERIES_ACCENT, name: 'input' },
+                  { ...SERIES_GRAY_MID, name: 'cached' },
                   { ...SERIES_GRAY, name: 'output' },
                 ]}
                 format={formatCompact}
@@ -573,8 +587,8 @@ export function AppsUsage() {
                     <TableHead>Model</TableHead>
                     <TableHead className="text-right">Requests</TableHead>
                     <TableHead className="text-right">Input</TableHead>
-                    <TableHead className="text-right">Output</TableHead>
                     <TableHead className="text-right">Cached</TableHead>
+                    <TableHead className="text-right">Output</TableHead>
                     <TableHead className="text-right">Spend</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -597,10 +611,10 @@ export function AppsUsage() {
                         {formatTokens(r.units['input_tokens'])}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatTokens(r.units['output_tokens'])}
+                        {formatTokens(r.units['cached_input_tokens'])}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatTokens(r.units['cached_input_tokens'])}
+                        {formatTokens(r.units['output_tokens'])}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {r.cost === null ? (

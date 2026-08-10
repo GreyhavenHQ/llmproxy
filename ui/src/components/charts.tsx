@@ -20,9 +20,11 @@ export interface ChartPoint {
   rows?: { label: string; value: string }[] // extra tooltip lines
 }
 
-// The two series slots. Slot 2 takes a different gray per mode because the
+// The series slots. Slot 2 takes a different gray per mode because the
 // design system's dark ramp runs the other way; both clear contrast and
-// colour-vision separation against their surface.
+// colour-vision separation against their surface. The mid slot is the third
+// segment of a token stack (cached input), the mid gray sitting a clear
+// lightness step from slot 2 in both modes.
 export const SERIES_ACCENT: ChartSeries = {
   name: '',
   fill: 'fill-chart-1',
@@ -32,6 +34,11 @@ export const SERIES_GRAY: ChartSeries = {
   name: '',
   fill: 'fill-chart-2 dark:fill-chart-4',
   swatch: 'bg-chart-2 dark:bg-chart-4',
+}
+export const SERIES_GRAY_MID: ChartSeries = {
+  name: '',
+  fill: 'fill-chart-3',
+  swatch: 'bg-chart-3',
 }
 
 const GUTTER = 52 // room for y-axis labels

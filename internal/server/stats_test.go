@@ -288,12 +288,12 @@ func TestStatsSummaryExcludesFailures(t *testing.T) {
 	}
 }
 
-// TestAnthropicCacheFoldedIntoInput: Anthropic reports cache reads and
-// writes outside input_tokens; the read-side aggregates fold them in so
-// totals are comparable with OpenAI-style reporting (where cached tokens are
-// already part of the prompt count). The fake upstream reports input 25,
-// cache_read 100, cache_creation 50.
-func TestAnthropicCacheFoldedIntoInput(t *testing.T) {
+// TestAnthropicCacheNormalisedInAggregates: read-side aggregates normalise
+// input_tokens to the non-cached input. Anthropic reports cache reads and
+// writes outside input_tokens; writes are fresh input so they fold in, reads
+// stay their own unit. The fake upstream reports input 25, cache_read 100,
+// cache_creation 50.
+func TestAnthropicCacheNormalisedInAggregates(t *testing.T) {
 	e := newEnv(t)
 	req, err := http.NewRequest("POST", e.proxy.URL+"/transparent/anthropic/"+e.relayToken+"/v1/messages",
 		strings.NewReader(`{"model":"claude-fake-1","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
@@ -320,8 +320,8 @@ func TestAnthropicCacheFoldedIntoInput(t *testing.T) {
 	}
 
 	check := func(path string, units map[string]any) {
-		if got := units["input_tokens"].(float64); got != 175 {
-			t.Fatalf("%s input_tokens = %v, want 175 (25 + 100 cache read + 50 cache write)", path, got)
+		if got := units["input_tokens"].(float64); got != 75 {
+			t.Fatalf("%s input_tokens = %v, want 75 (25 + 50 cache write)", path, got)
 		}
 		if got := units["cached_input_tokens"].(float64); got != 100 {
 			t.Fatalf("%s cached_input_tokens = %v, want 100", path, got)

@@ -253,8 +253,9 @@ func TestAdminPasswordLoginAndAdminSession(t *testing.T) {
 	}
 	entry, _ := requests[0].(map[string]any)
 	units, _ := entry["units"].(map[string]any)
+	// input is normalised to the non-cached input: prompt 7 minus cached 2.
 	if entry["principal"] != "bob" || entry["model"] != "beta" ||
-		units["input_tokens"] != float64(7) || units["output_tokens"] != float64(5) ||
+		units["input_tokens"] != float64(5) || units["output_tokens"] != float64(5) ||
 		units["cached_input_tokens"] != float64(2) {
 		t.Fatalf("request log entry wrong: %v", entry)
 	}

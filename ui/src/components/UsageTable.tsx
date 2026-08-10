@@ -24,8 +24,8 @@ export function UsageTable({
           <TableHead>Endpoint</TableHead>
           <TableHead className="text-right">Requests</TableHead>
           <TableHead className="text-right">Input</TableHead>
-          <TableHead className="text-right">Output</TableHead>
           <TableHead className="text-right">Cached</TableHead>
+          <TableHead className="text-right">Output</TableHead>
           <TableHead className="text-right">Cost</TableHead>
         </TableRow>
       </TableHeader>
@@ -47,8 +47,8 @@ export function UsageTable({
             <TableCell>{r.endpoint}</TableCell>
             <TableCell className="text-right tabular-nums">{formatTokens(r.requests)}</TableCell>
             <TableCell className="text-right tabular-nums">{formatTokens(r.units['input_tokens'])}</TableCell>
-            <TableCell className="text-right tabular-nums">{formatTokens(r.units['output_tokens'])}</TableCell>
             <TableCell className="text-right tabular-nums">{formatTokens(r.units['cached_input_tokens'])}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatTokens(r.units['output_tokens'])}</TableCell>
             <TableCell className="text-right tabular-nums">
               {r.cost === null ? (
                 <span className="text-muted-foreground">unpriced</span>

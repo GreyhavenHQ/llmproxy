@@ -285,11 +285,14 @@ func (s *Store) CountUsageEvents(ctx context.Context) (int64, error) {
 }
 
 // anthropicProviderID is the transparent relay's sentinel provider (colons
-// are invalid in real provider names, so it cannot collide). Anthropic
-// reports cache reads and writes outside input_tokens, unlike the OpenAI
-// shape where cached tokens are a subset of the prompt count; read-side
-// aggregation folds them into input_tokens so totals are comparable across
-// providers. Per-event quantities stay raw as the upstream reported them.
+// are invalid in real provider names, so it cannot collide). The two wire
+// shapes disagree on cache accounting: the OpenAI shape counts cached tokens
+// as a subset of the prompt count, Anthropic reports cache reads and writes
+// outside input_tokens. Read-side aggregation normalises both so that
+// input_tokens means non-cached input: the OpenAI cached subset is
+// subtracted out, and Anthropic cache writes (fresh input billed at a
+// premium rate) fold in while cache reads stay their own unit. Per-event
+// quantities stay raw as the upstream reported them.
 const anthropicProviderID = "transparent:anthropic"
 
 // anthropicFlagSQL marks quantity rows from the relay for the fold above.
@@ -309,12 +312,16 @@ const providerNameSQL = `CASE WHEN p.name IS NOT NULL THEN p.name ` +
 // request log still show them.
 const completedSQL = ` AND (e.cancelled = 1 OR e.outcome = 'ok')`
 
-// addQuantity accumulates one aggregated quantity into a units map, folding
-// Anthropic cache units into the input total.
+// addQuantity accumulates one aggregated quantity into a units map,
+// normalising input_tokens to the non-cached input; see the comment on
+// anthropicProviderID.
 func addQuantity(units map[string]float64, unit string, quantity float64, anthropic bool) {
 	units[unit] += quantity
-	if anthropic && (unit == "cached_input_tokens" || unit == "cache_creation_tokens") {
+	if anthropic && unit == "cache_creation_tokens" {
 		units["input_tokens"] += quantity
+	}
+	if !anthropic && unit == "cached_input_tokens" {
+		units["input_tokens"] -= quantity
 	}
 }
 

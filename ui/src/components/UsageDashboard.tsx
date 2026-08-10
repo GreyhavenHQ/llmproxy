@@ -28,6 +28,7 @@ import {
   foldDonut,
   SERIES_ACCENT,
   SERIES_GRAY,
+  SERIES_GRAY_MID,
   ShareBars,
   StatTile,
   type ChartPoint,
@@ -311,8 +312,7 @@ export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
   const tokenPoints: ChartPoint[] = buckets.map((b) => ({
     label: label(b),
     title: title(b),
-    values: [input(b), output(b)],
-    rows: cached(b) ? [{ label: 'cached input', value: formatCompact(cached(b)) }] : undefined,
+    values: [input(b), cached(b), output(b)],
   }))
   const costPoints: ChartPoint[] = buckets.map((b) => ({
     label: label(b),
@@ -367,6 +367,9 @@ export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
       value: tokensOf(m),
       rows: [
         { label: 'requests', value: formatNumber(m.requests) },
+        ...(m.units['cached_input_tokens']
+          ? [{ label: 'cached input', value: formatCompact(m.units['cached_input_tokens']) }]
+          : []),
         ...(m.cost !== null ? [{ label: 'cost', value: formatMoney(m.cost) }] : []),
       ],
     })
@@ -395,6 +398,9 @@ export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
         tokensOf,
         (u) => [
           { label: 'requests', value: formatNumber(u.requests) },
+          ...(u.units['cached_input_tokens']
+            ? [{ label: 'cached input', value: formatCompact(u.units['cached_input_tokens']) }]
+            : []),
           ...(u.cost !== null ? [{ label: 'cost', value: formatMoney(u.cost) }] : []),
         ],
       ),
@@ -598,7 +604,7 @@ export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
                 <div className="flex flex-col gap-1.5">
                   <CardTitle className="font-serif">Models</CardTitle>
                   <CardDescription>
-                    Share of total tokens, cached input included.
+                    Share of total tokens, cached input excluded.
                   </CardDescription>
                 </div>
                 <Button
@@ -804,7 +810,9 @@ export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
                 <Card>
                   <CardHeader>
                     <CardTitle className="font-serif">User tokens</CardTitle>
-                    <CardDescription>Share of total tokens per user.</CardDescription>
+                    <CardDescription>
+                      Share of total tokens per user, cached input excluded.
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Donut
@@ -841,7 +849,7 @@ export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
             <CardHeader>
               <CardTitle className="font-serif">Tokens</CardTitle>
               <CardDescription>
-                Input and output per {range.bucket}; cached input included.
+                Input, cached input and output per {range.bucket}.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -849,6 +857,7 @@ export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
                 points={tokenPoints}
                 series={[
                   { ...SERIES_ACCENT, name: 'input' },
+                  { ...SERIES_GRAY_MID, name: 'cached' },
                   { ...SERIES_GRAY, name: 'output' },
                 ]}
                 format={formatCompact}

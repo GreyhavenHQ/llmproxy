@@ -446,7 +446,8 @@ func TestUsageSeriesBuckets(t *testing.T) {
 		t.Fatalf("want 7 day buckets, got %d: %s", len(series), body)
 	}
 	last := series[len(series)-1].(map[string]any)
-	if last["requests"] != 1.0 || last["units"].(map[string]any)["input_tokens"] != 7.0 {
+	// input is normalised to the non-cached input: prompt 7 minus cached 2.
+	if last["requests"] != 1.0 || last["units"].(map[string]any)["input_tokens"] != 5.0 {
 		t.Fatalf("today's bucket missing the request: %v", last)
 	}
 	if last["ok"] != 1.0 || last["failed"] != 0.0 || last["cancelled"] != 0.0 {

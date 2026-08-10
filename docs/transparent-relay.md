@@ -158,10 +158,11 @@ Units map from Anthropic's usage object:
 | `cache_creation_input_tokens` | `cache_creation_tokens` (recorded when non-zero) |
 
 Stored quantities are raw as Anthropic reported them, so each unit prices at
-its own rate. Because Anthropic reports cache reads and writes *outside*
-`input_tokens` (the OpenAI shape includes cached tokens in the prompt
-count), the usage aggregates fold both cache units into `input_tokens` at
-read time; see [keys-and-usage.md](keys-and-usage.md#usage-model).
+its own rate. The usage aggregates normalise `input_tokens` to the
+non-cached input at read time: the relay's `cache_creation_tokens` (fresh
+input billed at a premium rate) fold in, cache reads stay their own unit,
+and the OpenAI shape's cached subset is subtracted out; see
+[keys-and-usage.md](keys-and-usage.md#usage-model).
 
 Pricing uses the normal feed keyed on the model name as Anthropic reports it
 (e.g. `claude-opus-5`); see [keys-and-usage.md](keys-and-usage.md#pricing).

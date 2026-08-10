@@ -115,11 +115,13 @@ tokens as a subset of the prompt count (`prompt_tokens_details.cached_tokens
 ⊆ prompt_tokens`), while Anthropic reports cache reads and writes *outside*
 `input_tokens`. Stored quantities stay raw as reported (pricing multiplies
 each unit by its own price, so cache reads and writes keep their own rates),
-but every aggregate (`/my/usage*`, `/admin/v1/usage*`, `/stats/*`) folds the
-relay's `cached_input_tokens` and `cache_creation_tokens` into
-`input_tokens`. So `input_tokens` always means "total input processed,
-cached included" and is comparable across providers, and
-`cached_input_tokens` is always the cached subset. An OpenAI-compatible
+but every aggregate (`/my/usage*`, `/admin/v1/usage*`, `/stats/*`)
+normalises `input_tokens` to the *non-cached* input: the OpenAI cached
+subset is subtracted back out, and the relay's `cache_creation_tokens`
+(fresh input billed at a premium rate) folds in while cache reads stay
+their own unit. So `input_tokens` always means "input processed at the full
+input rate" and is comparable across providers, and `cached_input_tokens`
+is always the cheap cache-read count on top of it. An OpenAI-compatible
 upstream that never reports `cached_tokens` (no prefix caching, or caching
 not surfaced) simply shows no cached quantity; absence means "not reported",
 never "free".
@@ -383,7 +385,7 @@ curl -s "$P/stats/summary?since=2026-07-01&client=claude-cli" -H "authorization:
       "requests": 3211,
       "cancelled": 12,
       "cost": 41.20734,
-      "units": {"input_tokens": 1882340, "output_tokens": 378512, "cached_input_tokens": 1571200}
+      "units": {"input_tokens": 311140, "output_tokens": 378512, "cached_input_tokens": 1571200}
     }
   ]
 }

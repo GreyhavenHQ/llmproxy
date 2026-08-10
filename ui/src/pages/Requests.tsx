@@ -324,8 +324,8 @@ export function Requests() {
                   <TableHead>Tags</TableHead>
                   <TableHead>Outcome</TableHead>
                   <TableHead className="text-right">Input</TableHead>
-                  <TableHead className="text-right">Output</TableHead>
                   <TableHead className="text-right">Cached</TableHead>
+                  <TableHead className="text-right">Output</TableHead>
                   <TableHead className="text-right">Cost</TableHead>
                   <TableHead className="text-right">Duration</TableHead>
                 </TableRow>
@@ -377,10 +377,10 @@ export function Requests() {
                       {formatTokens(r.units['input_tokens'])}
                     </TableCell>
                     <TableCell className="text-right">
-                      {formatTokens(r.units['output_tokens'])}
+                      {formatTokens(r.units['cached_input_tokens'])}
                     </TableCell>
                     <TableCell className="text-right">
-                      {formatTokens(r.units['cached_input_tokens'])}
+                      {formatTokens(r.units['output_tokens'])}
                     </TableCell>
                     <TableCell className="text-right">
                       {r.cost === null ? (
