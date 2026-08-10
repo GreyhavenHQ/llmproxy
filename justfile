@@ -8,7 +8,7 @@ build:
 
 # Rebuild the embedded web UI (requires node; internal/server/uidist is committed so plain `go build` works without it).
 ui:
-    cd ui && npm install --no-fund --no-audit && npm run build
+    cd ui && npm ci --no-fund --no-audit && npm run build
 
 # Run the test suite.
 test:

@@ -29,3 +29,17 @@ jobs:
         run: go test -race -count=1 ./...
       - name: Build
         run: CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/llmproxy ./cmd/llmproxy
+
+  ui-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Rebuild UI
+        run: cd ui && npm ci --no-fund --no-audit && npm run build
+      - name: Fail if committed uidist/ is stale
+        run: |
+          git diff --exit-code -- internal/server/uidist \
+            || { echo "internal/server/uidist is stale; run 'just ui' and commit the result"; exit 1; }

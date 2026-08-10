@@ -16,7 +16,7 @@ just docker     # docker build -t llmproxy .
 
 Single test: `go test ./internal/server -run TestName`. Most server tests go through `testenv_test.go`, which boots a real server against a temp SQLite database.
 
-The web UI (`ui/`, React + Vite) builds into `internal/server/uidist/`, which is **committed** and embedded via `go:embed` so plain `go build` works without node. After changing anything under `ui/`, run `just ui` and commit the regenerated `uidist/` output. The Dockerfile rebuilds the UI from source so the two cannot drift.
+The web UI (`ui/`, React + Vite) builds into `internal/server/uidist/`, which is **committed** and embedded via `go:embed` so plain `go build` (and the Docker image) works without node. After changing anything under `ui/`, run `just ui` and commit the regenerated `uidist/` output. The `ui-drift` CI job rebuilds the UI and fails if the committed `uidist/` is stale, so a plain `go build` from any CI-checked revision embeds the current UI.
 
 ## What this is
 

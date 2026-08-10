@@ -1,19 +1,12 @@
-# Stage 1: build the web UI from source (the repo also commits the built
-# uidist/, but the image builds it fresh so the two cannot drift).
-FROM node:24-alpine AS ui
-WORKDIR /src
-COPY ui/package.json ui/package-lock.json ui/
-RUN cd ui && npm ci --no-fund --no-audit
-COPY ui/ ui/
-RUN mkdir -p internal/server && cd ui && npm run build
-
-# Stage 2: build the static Go binary with the UI embedded.
+# Build the static Go binary with the committed UI embedded. The web UI lives
+# in internal/server/uidist/ (committed, embedded via go:embed); the ui-drift CI
+# job rebuilds it and fails if that committed output is stale, so the image can
+# trust it without a node build stage of its own.
 FROM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-COPY --from=ui /src/internal/server/uidist internal/server/uidist
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/llmproxy ./cmd/llmproxy
 
 FROM alpine:3.21

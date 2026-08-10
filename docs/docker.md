@@ -6,10 +6,11 @@
 just docker        # docker build -t llmproxy .
 ```
 
-The Dockerfile is a three-stage build: a `node` stage compiles the web UI
-(so the image never drifts from the UI source), a `golang` Alpine stage
-compiles the static binary with the UI embedded (`CGO_ENABLED=0`), and the
-runtime stage is plain `alpine` with just the binary. What the runtime image
+The Dockerfile is a two-stage build: a `golang` Alpine stage compiles the
+static binary with the committed web UI embedded (`CGO_ENABLED=0`), and the
+runtime stage is plain `alpine` with just the binary. The UI is not rebuilt in
+the image; the committed `internal/server/uidist/` is embedded as-is, and the
+`ui-drift` CI job guarantees it matches the `ui/` source. What the runtime image
 sets up:
 
 - A non-root user `llmproxy` (uid 1000); the process never runs as root.
