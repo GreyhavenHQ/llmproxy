@@ -59,21 +59,10 @@ func (s *Store) Init(ctx context.Context) error {
 			return err
 		}
 	}
-	// Best-effort upgrades for databases created before a column existed.
-	// CREATE TABLE IF NOT EXISTS does not alter existing tables, so additive
-	// changes are applied here; the errors ("duplicate column", "no such
-	// column") are the normal case on fresh or already-upgraded databases.
-	for _, stmt := range []string{
-		`ALTER TABLE api_key ADD COLUMN key_suffix TEXT NOT NULL DEFAULT ''`,
-		`DELETE FROM api_key WHERE revoked_at IS NOT NULL`, // revoked keys are now deleted outright
-		`ALTER TABLE model_binding ADD COLUMN target_id TEXT REFERENCES model_binding(id)`,
-		`ALTER TABLE principal ADD COLUMN sessions_revoked_before TEXT`,
-		`ALTER TABLE usage_event ADD COLUMN client TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE usage_event ADD COLUMN tags TEXT NOT NULL DEFAULT ''`,
-	} {
-		_, _ = s.db.ExecContext(ctx, stmt)
-	}
-	return nil
+	// Bring an existing database created before a column or change existed up
+	// to the current schema. Versioned and tracked, not best-effort; see
+	// migrate.go.
+	return s.migrate(ctx)
 }
 
 // q rewrites ? placeholders to $n for Postgres.
