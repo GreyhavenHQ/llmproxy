@@ -374,6 +374,12 @@ func usageWhere(f UsageFilter) (string, []any) {
 		where += ` AND (',' || e.tags || ',') LIKE ? ESCAPE '\'`
 		args = append(args, likeTag(pair))
 	}
+	// An app tag is a ",app:" pair in the comma-wrapped list. Values are
+	// non-empty (the tag grammar starts alphanumeric), so a present key is a
+	// real app, and the leading comma keeps "app:" from matching a longer key.
+	if f.AppTagged {
+		where += ` AND (',' || e.tags || ',') LIKE '%,app:%'`
+	}
 	if f.Since != "" {
 		where += ` AND e.ts >= ?`
 		args = append(args, f.Since)

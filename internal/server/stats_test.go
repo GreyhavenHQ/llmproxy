@@ -608,6 +608,57 @@ func TestTagFilter(t *testing.T) {
 	}
 }
 
+// TestAppTaggedExcludesUntagged: app_tagged=1 keeps only events carrying an
+// app tag, so the per-app views ignore untagged traffic. The default query
+// still counts it.
+func TestAppTaggedExcludesUntagged(t *testing.T) {
+	e := newEnv(t)
+	seedTwoRequests(t, e) // two app-tagged events
+
+	// One more event with no tags header at all.
+	req, _ := http.NewRequest("POST", e.proxy.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"alpha","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Authorization", "Bearer "+e.adminKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("untagged request failed: %v", err)
+	}
+	resp.Body.Close()
+	e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Alias == "alpha" && ev.Tags == "" })
+
+	get := func(path string) []any {
+		t.Helper()
+		res, data := e.request(t, "GET", path, e.memberKey, nil)
+		if res.StatusCode != 200 {
+			t.Fatalf("GET %s = %d: %s", path, res.StatusCode, data)
+		}
+		rows, _ := decode(t, data)["usage"].([]any)
+		return rows
+	}
+
+	// The untagged row is present by default.
+	untaggedSeen := func(rows []any) bool {
+		for _, r := range rows {
+			if r.(map[string]any)["tags"] == "" {
+				return true
+			}
+		}
+		return false
+	}
+	if rows := get("/stats/summary"); !untaggedSeen(rows) {
+		t.Fatalf("default summary dropped the untagged event: %v", rows)
+	}
+	// app_tagged=1 drops it, leaving only the two tagged apps.
+	rows := get("/stats/summary?app_tagged=1")
+	if untaggedSeen(rows) {
+		t.Fatalf("app_tagged summary kept an untagged event: %v", rows)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("app_tagged summary rows = %d, want 2 (the tagged apps)", len(rows))
+	}
+}
+
 // TestInitIdempotent: a second Init on an already-migrated database is a
 // no-op; the client column upgrade must tolerate both fresh and old schemas.
 func TestInitIdempotent(t *testing.T) {

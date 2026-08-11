@@ -4,8 +4,10 @@
 // the usage event and never sees anything else about them.
 //
 // Data flow mirrors the usage overview: the time series is filtered
-// server-side by tag, while the summary is fetched once per range and sliced
-// client-side, so one request feeds the bars, the tables and the dropdowns.
+// server-side by tag, user and model, while the summary is fetched once per
+// range and sliced client-side, so one request feeds the bars, the tables and
+// the dropdowns. Both requests carry app_tagged=1, so untagged traffic never
+// enters this view; the totals here cover tagged apps only.
 
 import { useMemo, useState } from 'react'
 import {
@@ -67,8 +69,9 @@ import {
 } from '@/components/ui/table'
 import { ChartBar, FilterX, RefreshCw, TableProperties } from 'lucide-react'
 
-// Events that carry no app tag are still someone's traffic, so they get a
-// bucket of their own and the totals here match the overview tab.
+// Untagged app traffic is dropped server-side (app_tagged=1), so no app bucket
+// carries this label. It survives only for the context breakdown, where an
+// app-tagged event may still lack a context tag.
 const UNTAGGED = 'untagged'
 
 interface Agg {
@@ -130,6 +133,8 @@ export function AppsUsage() {
   const [rangeKey, setRangeKey] = useState('30d')
   const [app, setApp] = useState('')
   const [context, setContext] = useState('')
+  const [user, setUser] = useState('')
+  const [model, setModel] = useState('')
   const [appTable, setAppTable] = useState(false) // Apps card: bars or full table
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[2]
 
@@ -139,24 +144,31 @@ export function AppsUsage() {
   // Fetch the previous window too, so the tiles can show a change.
   const fetchFrom = windowStart ? addBuckets(windowStart, range.bucket, -range.count) : null
 
-  const tagQuery =
+  // app_tagged=1 drops untagged traffic; user and model narrow server-side so
+  // the tiles and time series match the sliced tables below.
+  const filterQuery =
+    '&app_tagged=1' +
     (app ? `&tag=${encodeURIComponent(`app:${app}`)}` : '') +
-    (context ? `&tag=${encodeURIComponent(`context:${context}`)}` : '')
+    (context ? `&tag=${encodeURIComponent(`context:${context}`)}` : '') +
+    (user ? `&principal=${encodeURIComponent(user)}` : '') +
+    (model ? `&model=${encodeURIComponent(model)}` : '')
   const series = useAsync(
     () =>
       api.get<{ bucket: Bucket; series: UsageBucket[] }>(
         `/stats/series?bucket=${range.bucket}` +
           (fetchFrom ? `&since=${fetchFrom.toISOString()}` : '') +
-          tagQuery,
+          filterQuery,
       ),
-    [rangeKey, app, context],
+    [rangeKey, app, context, user, model],
   )
-  // Unfiltered on purpose: the distinct tags feed the dropdowns, and slicing
-  // happens client-side so one request serves every breakdown.
+  // Only untagged traffic is dropped here; app, context, user and model stay
+  // unfiltered so the distinct values feed the dropdowns and one request serves
+  // every breakdown, sliced client-side.
   const summary = useAsync(
     () =>
       api.get<{ usage: StatsRow[] }>(
-        '/stats/summary' + (windowStart ? `?since=${windowStart.toISOString()}` : ''),
+        '/stats/summary?app_tagged=1' +
+          (windowStart ? `&since=${windowStart.toISOString()}` : ''),
       ),
     [rangeKey],
   )
@@ -225,14 +237,24 @@ export function AppsUsage() {
       ].sort(),
     [rows, app],
   )
+  const userOptions = useMemo(
+    () => [...new Set(rows.map((r) => r.principal))].sort(),
+    [rows],
+  )
+  const modelOptions = useMemo(
+    () => [...new Set(rows.map((r) => r.model))].sort(),
+    [rows],
+  )
   const filtered = useMemo(
     () =>
       rows.filter(
         (r) =>
           (!app || tagValue(r.tags, 'app') === app) &&
-          (!context || tagValue(r.tags, 'context') === context),
+          (!context || tagValue(r.tags, 'context') === context) &&
+          (!user || r.principal === user) &&
+          (!model || r.model === model),
       ),
-    [rows, app, context],
+    [rows, app, context, user, model],
   )
 
   const byApp = useMemo(
@@ -341,13 +363,29 @@ export function AppsUsage() {
           options={contextOptions}
           allLabel="All contexts"
         />
-        {(app || context) && (
+        <FilterSelect
+          label="User"
+          value={user}
+          onChange={setUser}
+          options={userOptions}
+          allLabel="All users"
+        />
+        <FilterSelect
+          label="Model"
+          value={model}
+          onChange={setModel}
+          options={modelOptions}
+          allLabel="All models"
+        />
+        {(app || context || user || model) && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setApp('')
               setContext('')
+              setUser('')
+              setModel('')
             }}
           >
             <FilterX />
@@ -497,7 +535,7 @@ export function AppsUsage() {
                 <Donut
                   // Remount on filter changes so the unfolded state resets
                   // with the data.
-                  key={`${rangeKey} ${app} ${context}`}
+                  key={`${rangeKey} ${app} ${context} ${user} ${model}`}
                   slices={appSpend.slices}
                   overflow={appSpend.overflow}
                   format={formatMoney}

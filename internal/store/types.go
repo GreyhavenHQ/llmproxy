@@ -205,7 +205,8 @@ type UsageSummaryRow struct {
 // version. APIKeyID matches the key the request authenticated with; relay
 // traffic carries a relay token id there and so never matches. Tags holds
 // exact "key:value" pairs, each matched against the event's stored tag list;
-// several entries narrow together.
+// several entries narrow together. AppTagged, when set, keeps only events that
+// carry an "app:" tag, dropping untagged traffic from per-app views.
 type UsageFilter struct {
 	PrincipalID string
 	APIKeyID    string
@@ -213,6 +214,7 @@ type UsageFilter struct {
 	Model       string
 	Client      string
 	Tags        []string
+	AppTagged   bool
 	Since       string
 	Until       string
 }

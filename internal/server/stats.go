@@ -22,8 +22,9 @@ const maxTagFilters = 4
 // key is an API key id, which relay traffic never carries. tag is repeatable
 // and takes an exact "key:value" pair, lowercased like the stored value,
 // several of which narrow together; a value that matches nothing simply
-// returns nothing. since and until bound the window on the stored UTC
-// timestamp.
+// returns nothing. app_tagged=1 drops events without an app tag, so per-app
+// views ignore untagged traffic. since and until bound the window on the
+// stored UTC timestamp.
 func (s *Server) statsFilter(w http.ResponseWriter, r *http.Request) (store.UsageFilter, bool) {
 	principalID, ok := s.principalFilter(w, r)
 	if !ok {
@@ -56,6 +57,7 @@ func (s *Server) statsFilter(w http.ResponseWriter, r *http.Request) (store.Usag
 		Model:       r.URL.Query().Get("model"),
 		Client:      r.URL.Query().Get("client"),
 		Tags:        tags,
+		AppTagged:   r.URL.Query().Get("app_tagged") == "1",
 		Since:       since,
 		Until:       until,
 	}, true
