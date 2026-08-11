@@ -18,8 +18,10 @@ const maxTagFilters = 4
 
 // statsFilter reads the common query filters. principal is resolved from name
 // to id (writing the error response on failure); provider matches the
-// resolved provider name; client is a prefix match on the stored User-Agent;
-// key is an API key id, which relay traffic never carries. tag is repeatable
+// resolved provider name; model matches the alias the caller used; endpoint
+// matches the route ("chat", "embeddings", ...); client is a prefix match on
+// the stored User-Agent; key is an API key id, which relay traffic never
+// carries. tag is repeatable
 // and takes an exact "key:value" pair, lowercased like the stored value,
 // several of which narrow together; a value that matches nothing simply
 // returns nothing. app_tagged=1 drops events without an app tag, so per-app
@@ -55,6 +57,7 @@ func (s *Server) statsFilter(w http.ResponseWriter, r *http.Request) (store.Usag
 		APIKeyID:    r.URL.Query().Get("key"),
 		Provider:    r.URL.Query().Get("provider"),
 		Model:       r.URL.Query().Get("model"),
+		Endpoint:    r.URL.Query().Get("endpoint"),
 		Client:      r.URL.Query().Get("client"),
 		Tags:        tags,
 		AppTagged:   r.URL.Query().Get("app_tagged") == "1",

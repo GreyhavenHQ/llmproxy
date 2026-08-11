@@ -659,6 +659,42 @@ func TestAppTaggedExcludesUntagged(t *testing.T) {
 	}
 }
 
+// TestEndpointFilter: the endpoint param narrows the aggregates to one route,
+// so the per-app view can show embeddings apart from chat.
+func TestEndpointFilter(t *testing.T) {
+	e := newEnv(t)
+	seedTwoRequests(t, e) // two chat events
+	resp, body := e.request(t, "POST", "/v1/embeddings", e.memberKey,
+		map[string]any{"model": "embed-only", "input": "hello world"})
+	if resp.StatusCode != 200 {
+		t.Fatalf("embeddings: %d %s", resp.StatusCode, body)
+	}
+	e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Endpoint == "embeddings" })
+
+	get := func(path string) []any {
+		t.Helper()
+		res, data := e.request(t, "GET", path, e.memberKey, nil)
+		if res.StatusCode != 200 {
+			t.Fatalf("GET %s = %d: %s", path, res.StatusCode, data)
+		}
+		rows, _ := decode(t, data)["usage"].([]any)
+		return rows
+	}
+
+	rows := get("/stats/summary?endpoint=embeddings")
+	if len(rows) != 1 {
+		t.Fatalf("embeddings summary rows = %d, want 1", len(rows))
+	}
+	if got := rows[0].(map[string]any)["endpoint"]; got != "embeddings" {
+		t.Fatalf("row endpoint = %v, want embeddings", got)
+	}
+	for _, r := range get("/stats/summary?endpoint=chat") {
+		if got := r.(map[string]any)["endpoint"]; got != "chat" {
+			t.Fatalf("chat filter returned endpoint %v", got)
+		}
+	}
+}
+
 // TestInitIdempotent: a second Init on an already-migrated database is a
 // no-op; the client column upgrade must tolerate both fresh and old schemas.
 func TestInitIdempotent(t *testing.T) {

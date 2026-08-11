@@ -212,6 +212,7 @@ type UsageFilter struct {
 	APIKeyID    string
 	Provider    string
 	Model       string
+	Endpoint    string
 	Client      string
 	Tags        []string
 	AppTagged   bool

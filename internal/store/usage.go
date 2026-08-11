@@ -365,6 +365,10 @@ func usageWhere(f UsageFilter) (string, []any) {
 		where += ` AND e.alias = ?`
 		args = append(args, f.Model)
 	}
+	if f.Endpoint != "" {
+		where += ` AND e.endpoint = ?`
+		args = append(args, f.Endpoint)
+	}
 	if f.Client != "" {
 		where += ` AND e.client LIKE ? ESCAPE '\'`
 		args = append(args, likePrefix(f.Client))

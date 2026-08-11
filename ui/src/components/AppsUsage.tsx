@@ -161,6 +161,19 @@ export function AppsUsage() {
       ),
     [rangeKey, app, context, user, model],
   )
+  // Embeddings billed as input tokens only, kept on their own so the token
+  // graph above stays about chat traffic. Same window and filters as the main
+  // series, narrowed to the embeddings endpoint.
+  const embed = useAsync(
+    () =>
+      api.get<{ bucket: Bucket; series: UsageBucket[] }>(
+        `/stats/series?bucket=${range.bucket}` +
+          (fetchFrom ? `&since=${fetchFrom.toISOString()}` : '') +
+          filterQuery +
+          '&endpoint=embeddings',
+      ),
+    [rangeKey, app, context, user, model],
+  )
   // Only untagged traffic is dropped here; app, context, user and model stay
   // unfiltered so the distinct values feed the dropdowns and one request serves
   // every breakdown, sliced client-side.
@@ -179,31 +192,33 @@ export function AppsUsage() {
   const previous = all.filter((b) => new Date(b.start).getTime() < startMs)
   const comparable = previous.length > 0
 
-  const input = (b: UsageBucket) => b.units['input_tokens'] ?? 0
+  // Embeddings share the input_tokens unit with chat, so the chat token graph
+  // subtracts the embeddings the second series reports for the same bucket.
+  const embedByStart = useMemo(() => {
+    const m = new Map<string, UsageBucket>()
+    for (const b of embed.data?.series ?? []) m.set(b.start, b)
+    return m
+  }, [embed.data])
+
   const output = (b: UsageBucket) => b.units['output_tokens'] ?? 0
   const cached = (b: UsageBucket) => b.units['cached_input_tokens'] ?? 0
-  const tokens = (b: UsageBucket) => input(b) + output(b)
+  const embedInput = (b: UsageBucket) => embedByStart.get(b.start)?.units['input_tokens'] ?? 0
+  // Chat input is the non-embedding remainder; clamp guards a bucket race.
+  const chatInput = (b: UsageBucket) => Math.max(0, (b.units['input_tokens'] ?? 0) - embedInput(b))
+  const chatTokens = (b: UsageBucket) => chatInput(b) + output(b)
 
   const requests = sum(buckets, (b) => b.requests)
-  const tokensTotal = sum(buckets, tokens)
+  const chatInputTotal = sum(buckets, chatInput)
+  const outputTotal = sum(buckets, output)
   const cachedTotal = sum(buckets, cached)
-  const costTotal = sum(buckets, (b) => b.cost ?? 0)
-  const priced = buckets.some((b) => b.cost !== null)
-  const unpricedRequests = sum(buckets, (b) => b.unpriced_requests)
+  const chatTokensTotal = chatInputTotal + outputTotal
+  const embedInputTotal = sum(buckets, embedInput)
 
   const inProgress = (b: UsageBucket) => new Date(b.start).getTime() === windowEnd.getTime()
   const label = (b: UsageBucket) => bucketLabel(b.start, range.bucket)
   const title = (b: UsageBucket) =>
     bucketTitle(b.start, range.bucket) + (inProgress(b) ? ' · in progress' : '')
 
-  const costPoints: ChartPoint[] = buckets.map((b) => ({
-    label: label(b),
-    title: title(b),
-    values: [b.cost],
-    rows: b.unpriced_requests
-      ? [{ label: 'unpriced requests', value: formatNumber(b.unpriced_requests) }]
-      : undefined,
-  }))
   const requestPoints: ChartPoint[] = buckets.map((b) => ({
     label: label(b),
     title: title(b),
@@ -213,7 +228,12 @@ export function AppsUsage() {
   const tokenPoints: ChartPoint[] = buckets.map((b) => ({
     label: label(b),
     title: title(b),
-    values: [input(b), cached(b), output(b)],
+    values: [chatInput(b), cached(b), output(b)],
+  }))
+  const embedPoints: ChartPoint[] = buckets.map((b) => ({
+    label: label(b),
+    title: title(b),
+    values: [embedInput(b)],
   }))
 
   // ---------- summary-derived breakdowns and filter options ----------
@@ -271,35 +291,35 @@ export function AppsUsage() {
     [byApp],
   )
 
-  // Spend share as a donut; apps with nothing priced have nothing to show.
-  const appSpend = useMemo(() => {
-    const slice = (a: { name?: string } & Agg, labelOverride?: string): DonutSlice => ({
-      label: labelOverride ?? a.name ?? '',
-      value: a.cost ?? 0,
-      rows: [
-        { label: 'requests', value: formatNumber(a.requests) },
-        { label: 'tokens', value: formatCompact(tokensOf(a)) },
-      ],
+  // Requests per user as a donut: who leans on the proxy the most.
+  const byUser = useMemo(
+    () =>
+      groupBy(filtered, (r) => r.principal, (name) => ({ name, ...emptyAgg() })).sort(
+        (a, b) => b.requests - a.requests,
+      ),
+    [filtered],
+  )
+  const userUsage = useMemo(() => {
+    const slice = (u: { name?: string } & Agg, labelOverride?: string): DonutSlice => ({
+      label: labelOverride ?? u.name ?? '',
+      value: u.requests,
+      rows: [{ label: 'tokens', value: formatCompact(tokensOf(u)) }],
     })
-    const pricedApps = byApp
-      .filter((a) => a.cost !== null)
-      .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))
     return foldDonut(
-      pricedApps,
-      (a) => slice(a),
+      byUser,
+      (u) => slice(u),
       (tail) => {
         const merged = emptyAgg()
-        for (const a of tail) {
-          merged.requests += a.requests
-          if (a.cost !== null) merged.cost = (merged.cost ?? 0) + a.cost
-          for (const [unit, quantity] of Object.entries(a.units)) {
+        for (const u of tail) {
+          merged.requests += u.requests
+          for (const [unit, quantity] of Object.entries(u.units)) {
             merged.units[unit] = (merged.units[unit] ?? 0) + quantity
           }
         }
-        return slice(merged, `Other (${tail.length} apps)`)
+        return slice(merged, `Other (${tail.length} users)`)
       },
     )
-  }, [byApp])
+  }, [byUser])
 
   const byContext = useMemo(
     () =>
@@ -329,7 +349,7 @@ export function AppsUsage() {
   )
 
   const loading = (series.loading && !series.data) || (summary.loading && !summary.data)
-  const stale = !loading && (series.loading || summary.loading)
+  const stale = !loading && (series.loading || summary.loading || embed.loading)
 
   return (
     <div className="flex flex-col gap-6">
@@ -356,13 +376,15 @@ export function AppsUsage() {
           options={appOptions}
           allLabel="All apps"
         />
-        <FilterSelect
-          label="Context"
-          value={context}
-          onChange={setContext}
-          options={contextOptions}
-          allLabel="All contexts"
-        />
+        {app && (
+          <FilterSelect
+            label="Context"
+            value={context}
+            onChange={setContext}
+            options={contextOptions}
+            allLabel="All contexts"
+          />
+        )}
         <FilterSelect
           label="User"
           value={user}
@@ -399,6 +421,7 @@ export function AppsUsage() {
           onClick={() => {
             series.reload()
             summary.reload()
+            embed.reload()
           }}
         >
           <RefreshCw />
@@ -407,23 +430,13 @@ export function AppsUsage() {
 
       {loading ? (
         <Spinner />
-      ) : series.error || summary.error ? (
-        <p className="text-sm text-destructive">{series.error ?? summary.error}</p>
+      ) : series.error || summary.error || embed.error ? (
+        <p className="text-sm text-destructive">
+          {series.error ?? summary.error ?? embed.error}
+        </p>
       ) : (
         <div className={stale ? 'flex flex-col gap-6 opacity-60' : 'flex flex-col gap-6'}>
           <div className="grid gap-4 sm:grid-cols-3">
-            <StatTile
-              label="Spend"
-              value={priced ? formatMoney(costTotal) : 'unpriced'}
-              delta={
-                priced ? delta(costTotal, sum(previous, (b) => b.cost ?? 0), comparable) : null
-              }
-              hint={
-                unpricedRequests
-                  ? `${formatNumber(unpricedRequests)} request${unpricedRequests === 1 ? '' : 's'} unpriced`
-                  : undefined
-              }
-            />
             <StatTile
               label="Requests"
               value={formatCompact(requests)}
@@ -431,9 +444,15 @@ export function AppsUsage() {
             />
             <StatTile
               label="Tokens"
-              value={formatCompact(tokensTotal)}
-              secondary={cachedTotal > 0 ? `${formatCompact(cachedTotal)} cached` : undefined}
-              delta={delta(tokensTotal, sum(previous, tokens), comparable)}
+              value={formatCompact(chatTokensTotal)}
+              secondary={`${formatCompact(chatInputTotal)} in · ${formatCompact(cachedTotal)} cached · ${formatCompact(outputTotal)} out`}
+              delta={delta(chatTokensTotal, sum(previous, (b) => chatInput(b) + output(b)), comparable)}
+            />
+            <StatTile
+              label="Embedding"
+              value={formatCompact(embedInputTotal)}
+              secondary="in"
+              delta={delta(embedInputTotal, sum(previous, embedInput), comparable)}
             />
           </div>
 
@@ -528,48 +547,66 @@ export function AppsUsage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="font-serif">App spend</CardTitle>
-                <CardDescription>Share of total cost per app.</CardDescription>
+                <CardTitle className="font-serif">Users</CardTitle>
+                <CardDescription>Share of requests per user.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Donut
                   // Remount on filter changes so the unfolded state resets
                   // with the data.
                   key={`${rangeKey} ${app} ${context} ${user} ${model}`}
-                  slices={appSpend.slices}
-                  overflow={appSpend.overflow}
-                  format={formatMoney}
-                  emptyMessage="Nothing priced in this range."
+                  slices={userUsage.slices}
+                  overflow={userUsage.overflow}
+                  format={formatCompact}
+                  emptyMessage="No usage in this range."
                 />
               </CardContent>
             </Card>
 
-            <Card className="lg:col-span-2">
-              <CardHeader>
-                <CardTitle className="font-serif">Contexts</CardTitle>
-                <CardDescription>
-                  Requests per context{app ? ` in ${app}` : ', across every app'}.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ShareBars rows={contextRows} format={formatCompact} />
-              </CardContent>
-            </Card>
+            {app && (
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="font-serif">Contexts</CardTitle>
+                  <CardDescription>Requests per context in {app}.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ShareBars rows={contextRows} format={formatCompact} />
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle className="font-serif">Spend</CardTitle>
+              <CardTitle className="font-serif">Tokens</CardTitle>
               <CardDescription>
-                Per {range.bucket}; unpriced stays empty, never zero.
+                Chat input, cached input and output per {range.bucket}.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <ColumnChart
-                points={costPoints}
-                series={[{ ...SERIES_ACCENT, name: 'cost' }]}
-                format={(n) => formatMoney(n)}
-                emptyMessage="Nothing priced in this range."
+                points={tokenPoints}
+                series={[
+                  { ...SERIES_ACCENT, name: 'input' },
+                  { ...SERIES_GRAY_MID, name: 'cached' },
+                  { ...SERIES_GRAY, name: 'output' },
+                ]}
+                format={formatCompact}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-serif">Embedding</CardTitle>
+              <CardDescription>Input tokens on embeddings per {range.bucket}.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ColumnChart
+                points={embedPoints}
+                series={[{ ...SERIES_ACCENT, name: 'input' }]}
+                format={formatCompact}
+                emptyMessage="No embeddings in this range."
               />
             </CardContent>
           </Card>
@@ -588,26 +625,6 @@ export function AppsUsage() {
                 ]}
                 format={formatCompact}
                 integer
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="font-serif">Tokens</CardTitle>
-              <CardDescription>
-                Input, cached input and output per {range.bucket}.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ColumnChart
-                points={tokenPoints}
-                series={[
-                  { ...SERIES_ACCENT, name: 'input' },
-                  { ...SERIES_GRAY_MID, name: 'cached' },
-                  { ...SERIES_GRAY, name: 'output' },
-                ]}
-                format={formatCompact}
               />
             </CardContent>
           </Card>
