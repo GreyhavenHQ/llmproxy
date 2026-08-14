@@ -70,11 +70,13 @@ set), `invalid_json`, `model_required`, `request_too_large` (413),
 
 The proxy's usage is team-visible by design; the admin role gates
 configuration, not visibility. Every endpoint accepts the same filters:
-`principal`, `key` (an API key id), `provider`, `model`, `client`, `tag` and
-the `since`/`until` window; see
+`principal`, `key` (an API key id), `provider`, `model`, `client`, `tag`,
+`outcome` and the `since`/`until` window; see
 [keys-and-usage.md](keys-and-usage.md#team-statistics). `tag` takes one exact
 `key:value` pair, is repeatable up to four times, and several pairs narrow
-together; a pair nothing carries simply matches nothing.
+together; a pair nothing carries simply matches nothing. `outcome` takes
+`ok`, `upstream_error`, `unreachable`, `cancelled` or the meta value
+`failed` (everything not ok); an unknown value is a 400.
 
 | Endpoint | Purpose |
 |---|---|
@@ -82,6 +84,13 @@ together; a pair nothing carries simply matches nothing.
 | `GET /stats/summary?since&until` | Usage aggregated per (principal, provider, model, endpoint, client, tags) |
 | `GET /stats/requests?limit&offset` | One page of the filtered request metadata log (never content), newest first; returns `{requests, limit, offset, total}` |
 | `GET /stats/requests/facets?since&until` | Distinct principals, keys, providers, models, clients and tags in the window, for the explorer's filter options |
+| `GET /stats/errors?bucket&since&until` | The errors dashboard in one call: a gap-filled series of counts per outcome, plus a breakdown per (provider, model, endpoint, client, tags, outcome, error_kind, status_code) with request count, average duration, last-seen and time-to-outcome bands (<1s, 1-5s, 5-15s, 15-30s, 30-60s, 60-120s, >=120s). Rows with outcome `ok` are included so error rates have their denominator. |
+
+Failures carry an `error_kind` classification token: the transport class on
+`unreachable` (`timeout`, `connection_error`, ...) and the upstream's
+`error.type`/`error.code` on `upstream_error` (e.g. `rate_limit_error`),
+sanitised to a short identifier. Provider error *messages* are never stored;
+they can echo request content.
 
 ## Transparent Anthropic relay (`/transparent/anthropic`)
 

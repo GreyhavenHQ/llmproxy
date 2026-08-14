@@ -86,7 +86,14 @@ refreshed at most once per minute per key, so treat it as coarse.
 Every `/v1` request that reaches resolution produces one `usage_event` row
 carrying identifiers, flags and numbers: principal, key, provider, alias,
 upstream name, endpoint, client, status code, outcome (`ok`, `upstream_error`,
-`unreachable`, `cancelled`), cancelled and streamed flags, duration, cost.
+`unreachable`, `cancelled`), error kind, cancelled and streamed flags,
+duration, cost. `error_kind` classifies a failure without storing any of it:
+the transport class on `unreachable` (`timeout`, `connection_error`,
+`response_too_large`), the upstream's `error.type`/`error.code` token on
+`upstream_error` (`rate_limit_error`, `overloaded_error`, ...), sanitised to
+a short lowercase identifier and dropped whole when it does not look like
+one. Provider error messages are never stored; they can echo request
+content.
 `client` is the caller's `User-Agent` header, truncated to 256 characters and
 stored verbatim, so the tool behind a key is visible and can change over time
 ("claude-cli/2.0.13 (external, cli)", "openai-python/1.51.0", ...). Grouping
@@ -340,7 +347,9 @@ configuration, not visibility. They take the same optional filters:
 `(deleted)`), `model=<alias>`, `client=<prefix>` (a prefix match on the
 stored User-Agent, so `client=claude-cli` covers every version),
 `tag=<key>:<value>` (an exact pair, repeatable up to four times, all of which
-must match) and the `since`/`until` window.
+must match), `outcome=<value>` (`ok`, `upstream_error`, `unreachable`,
+`cancelled`, or the meta value `failed` matching everything not ok; an
+unknown value is a 400 `invalid_outcome`) and the `since`/`until` window.
 
 The `key` filter matches API keys only. Relay traffic authenticates with a
 relay token, whose id occupies the same column, so relay events never match a
@@ -367,6 +376,15 @@ key filter and show no key; reach them through
   failed is still selectable. Each list is capped at 500 values. Key labels
   and last-4 suffixes are visible to every authenticated user here, as the
   rest of the stats surface already is.
+* `GET /stats/errors`: the errors dashboard in one call. `series` is the
+  gap-filled bucketed counts per outcome (`?bucket=` as in the series
+  endpoint); `breakdown` is one cell per `(provider, model, endpoint,
+  client, tags, outcome, error_kind, status_code)` with its request count,
+  average duration, last-seen timestamp and `bands`: counts of the cell's
+  requests by time-to-outcome (`<1s`, `1-5s`, `5-15s`, `15-30s`, `30-60s`,
+  `60-120s`, `>=120s`), so a cluster of cancellations at 120s reads as the
+  caller's timeout rather than a crash. Cells with outcome `ok` are included
+  so error rates per dimension have their denominator.
 
 ```bash
 curl -s "$P/stats/summary?since=2026-07-01&client=claude-cli" -H "authorization: Bearer $KEY"
@@ -393,10 +411,14 @@ curl -s "$P/stats/summary?since=2026-07-01&client=claude-cli" -H "authorization:
 
 This is what the UI draws: the Usage tab (an Overview subtab with tiles,
 per-period charts, the model share, the client breakdown and the by-user
-table, filterable by user, provider and client, and an Apps subtab breaking
-the same window down by application tag) and the Requests tab (the request
+table, filterable by user, provider and client; an Apps subtab breaking
+the same window down by application tag; and an Errors subtab: failures over
+time by class, the time-to-failure histogram, failure counts and rates by
+provider, app and model, the failure-kind share and an error-signatures
+table that deep-links into the explorer) and the Requests tab (the request
 explorer: a window preset or a custom UTC date range, filters for user, key,
-client, model and provider, and numbered pages with a total). The older
+client, app, model, provider and outcome, eight columns with the rest of the
+metadata in an expandable row, and numbered pages with a total). The older
 `/my/usage*` and `/admin/v1/usage*` endpoints stay as documented above.
 
 ## Metrics

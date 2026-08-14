@@ -2571,6 +2571,15 @@ paths:
             every version.
           schema:
             type: string
+        - name: outcome
+          in: query
+          description: >
+            Restrict to one outcome, or to every non-ok outcome with the
+            meta value `failed`. An unknown value is a 400
+            `invalid_outcome`.
+          schema:
+            type: string
+            enum: [ok, upstream_error, unreachable, cancelled, failed]
       responses:
         '200':
           description: Newest events first; `total` is the size of the whole filtered set.
@@ -2608,6 +2617,13 @@ paths:
                           type: string
                         outcome:
                           type: string
+                        error_kind:
+                          type: string
+                          description: >
+                            Failure classification token: the transport class
+                            on `unreachable`, the upstream's error type/code
+                            on `upstream_error`. Empty on ok and cancelled
+                            rows. Never an error message.
                         status_code:
                           type: [integer, 'null']
                         streamed:
