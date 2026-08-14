@@ -96,6 +96,11 @@ type UsageEvent struct {
 	Tags       string
 	StatusCode sql.NullInt64
 	Outcome    string
+	// ErrorKind classifies a failure: the transport class on unreachable
+	// (timeout, connection_error, ...), the upstream's error type/code token on
+	// upstream_error. Empty on ok and cancelled rows, and on rows recorded
+	// before the column existed. Never an error message.
+	ErrorKind  string
 	Cancelled  bool
 	Streamed   bool
 	Cost       sql.NullFloat64
@@ -153,6 +158,7 @@ type RequestLogRow struct {
 	KeyLabel      string
 	KeySuffix     string
 	Outcome       string
+	ErrorKind     string
 	StatusCode    sql.NullInt64
 	Streamed      bool
 	Cancelled     bool
@@ -216,8 +222,11 @@ type UsageFilter struct {
 	Client      string
 	Tags        []string
 	AppTagged   bool
-	Since       string
-	Until       string
+	// Outcome matches the stored outcome exactly, or every non-ok outcome
+	// when set to the meta value "failed".
+	Outcome string
+	Since   string
+	Until   string
 }
 
 // UsageBreakdownRow is one cell of the full-dimensional aggregate: usage for
@@ -234,6 +243,42 @@ type UsageBreakdownRow struct {
 	Cancelled   int64
 	Cost        sql.NullFloat64
 	Units       map[string]float64
+}
+
+// ErrorSeriesRow is one time bucket of request counts split by outcome, for
+// the errors dashboard. Counts only; no units or cost ride along.
+type ErrorSeriesRow struct {
+	Bucket        string
+	Requests      int64
+	OK            int64
+	UpstreamError int64
+	Unreachable   int64
+	Cancelled     int64
+}
+
+// DurationBands is the number of fixed time-to-outcome bands; see
+// durationBandsSQL for the boundaries.
+const DurationBands = 7
+
+// ErrorBreakdownRow is one cell of the errors aggregate: the filter window
+// grouped by every dimension a failure can be blamed on, with the duration
+// distribution alongside. Rows with outcome ok are included so error rates
+// per dimension can be computed from the same response.
+type ErrorBreakdownRow struct {
+	Provider   string
+	Alias      string
+	Endpoint   string
+	Client     string
+	Tags       string
+	Outcome    string
+	ErrorKind  string
+	StatusCode sql.NullInt64
+	Requests   int64
+	AvgMs      float64
+	LastSeen   string
+	// Bands counts the rows by duration: <1s, 1-5s, 5-15s, 15-30s, 30-60s,
+	// 60-120s, >=120s.
+	Bands [DurationBands]int64
 }
 
 // UsageSeriesRow is one time bucket of aggregated usage. Bucket is the

@@ -141,12 +141,12 @@ func (s *Server) handleTransparentAnthropic(w http.ResponseWriter, r *http.Reque
 	started := time.Now()
 	resp, err := s.transparent.Do(req)
 	if err != nil {
-		outcome, cancelled := "unreachable", false
+		outcome, cancelled, kind := "unreachable", false, errClass(err)
 		if r.Context().Err() != nil {
-			outcome, cancelled = "cancelled", true
+			outcome, cancelled, kind = "cancelled", true, ""
 		}
 		s.recordTransparentAsync(relay, r.Method, "", endpoint, clientFrom(r), tagsFrom(r), usageOutcome{
-			Outcome: outcome, Cancelled: cancelled,
+			Outcome: outcome, ErrorKind: kind, Cancelled: cancelled,
 			DurationMs: time.Since(started).Milliseconds(),
 		})
 		writeProxyError(w, apierr.Newf(502, "provider_unreachable",
@@ -171,7 +171,7 @@ func (s *Server) relayTransparentUnary(w http.ResponseWriter, r *http.Request,
 	relay *store.RelayAuthResult, endpoint string, resp *http.Response, started time.Time) {
 	flusher, _ := w.(http.Flusher)
 	var scan []byte
-	outcome, cancelled := "ok", false
+	outcome, cancelled, kind := "ok", false, ""
 	buf := make([]byte, 32*1024)
 	for {
 		n, readErr := resp.Body.Read(buf)
@@ -192,7 +192,7 @@ func (s *Server) relayTransparentUnary(w http.ResponseWriter, r *http.Request,
 				if r.Context().Err() != nil {
 					outcome, cancelled = "cancelled", true
 				} else {
-					outcome = "upstream_error"
+					outcome, kind = "upstream_error", errClass(readErr)
 				}
 			}
 			break
@@ -202,6 +202,11 @@ func (s *Server) relayTransparentUnary(w http.ResponseWriter, r *http.Request,
 	var usage map[string]any
 	if resp.StatusCode >= 400 {
 		outcome = "upstream_error"
+		// A read failure above already classified the transport error; the
+		// body it left behind is truncated and would classify worse.
+		if kind == "" && len(scan) <= transparentScanCap {
+			kind = errorKindFromBody(scan)
+		}
 	} else if len(scan) <= transparentScanCap &&
 		strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
 		var doc struct {
@@ -213,7 +218,7 @@ func (s *Server) relayTransparentUnary(w http.ResponseWriter, r *http.Request,
 		}
 	}
 	s.recordTransparentAsync(relay, r.Method, model, endpoint, clientFrom(r), tagsFrom(r), usageOutcome{
-		StatusCode: resp.StatusCode, Outcome: outcome, Cancelled: cancelled,
+		StatusCode: resp.StatusCode, Outcome: outcome, ErrorKind: kind, Cancelled: cancelled,
 		Usage: usage, DurationMs: time.Since(started).Milliseconds(),
 	})
 }
@@ -227,7 +232,7 @@ func (s *Server) relayTransparentStream(w http.ResponseWriter, r *http.Request,
 	flusher, _ := w.(http.Flusher)
 	var model string
 	var usage map[string]any
-	outcome, cancelled := "ok", false
+	outcome, cancelled, kind := "ok", false, ""
 	if resp.StatusCode >= 400 {
 		outcome = "upstream_error"
 	}
@@ -269,7 +274,7 @@ func (s *Server) relayTransparentStream(w http.ResponseWriter, r *http.Request,
 			if r.Context().Err() != nil {
 				outcome, cancelled = "cancelled", true
 			} else {
-				outcome = "upstream_error"
+				outcome, kind = "upstream_error", errClass(readErr)
 			}
 			break
 		}
@@ -281,7 +286,7 @@ func (s *Server) relayTransparentStream(w http.ResponseWriter, r *http.Request,
 		}
 	}
 	s.recordTransparentAsync(relay, r.Method, model, endpoint, clientFrom(r), tagsFrom(r), usageOutcome{
-		StatusCode: resp.StatusCode, Outcome: outcome, Cancelled: cancelled,
+		StatusCode: resp.StatusCode, Outcome: outcome, ErrorKind: kind, Cancelled: cancelled,
 		Streamed: true, Usage: usage, DurationMs: time.Since(started).Milliseconds(),
 	})
 }
@@ -331,6 +336,7 @@ func (s *Server) recordTransparentAsync(relay *store.RelayAuthResult, method, mo
 			Client:       client,
 			Tags:         tags,
 			Outcome:      rec.Outcome,
+			ErrorKind:    rec.ErrorKind,
 			Cancelled:    rec.Cancelled,
 			Streamed:     rec.Streamed,
 			DurationMs:   rec.DurationMs,

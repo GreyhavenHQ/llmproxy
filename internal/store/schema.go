@@ -96,7 +96,10 @@ CREATE TABLE IF NOT EXISTS model_binding (
 -- client is the caller's User-Agent header, truncated. tags is the caller's
 -- x-llmproxy-tags header, normalised to a canonical comma-separated
 -- "key:value" list. Both are header metadata only, never request or response
--- content.
+-- content. error_kind is a classification token: the proxy's transport error
+-- class on unreachable, the upstream's error type/code (sanitised to a short
+-- identifier charset) on upstream_error. Never an error message: provider
+-- messages can echo request content.
 CREATE TABLE IF NOT EXISTS usage_event (
     id TEXT PRIMARY KEY,
     ts TEXT NOT NULL,
@@ -110,6 +113,7 @@ CREATE TABLE IF NOT EXISTS usage_event (
     tags TEXT NOT NULL DEFAULT '',
     status_code INTEGER,
     outcome TEXT NOT NULL,
+    error_kind TEXT NOT NULL DEFAULT '',
     cancelled INTEGER NOT NULL DEFAULT 0,
     streamed INTEGER NOT NULL DEFAULT 0,
     cost DOUBLE PRECISION,

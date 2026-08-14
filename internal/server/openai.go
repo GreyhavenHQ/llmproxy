@@ -147,12 +147,12 @@ func (s *Server) proxyCompletion(w http.ResponseWriter, r *http.Request, auth *A
 	if err != nil {
 		// A caller that hung up before the upstream answered is a
 		// cancellation, not a provider failure.
-		outcome, cancelled := "unreachable", false
+		outcome, cancelled, kind := "unreachable", false, errClass(err)
 		if r.Context().Err() != nil {
-			outcome, cancelled = "cancelled", true
+			outcome, cancelled, kind = "cancelled", true, ""
 		}
 		s.recordUsageAsync(auth, route, endpoint, usageOutcome{
-			Outcome: outcome, Cancelled: cancelled, Streamed: stream,
+			Outcome: outcome, ErrorKind: kind, Cancelled: cancelled, Streamed: stream,
 			DurationMs: time.Since(started).Milliseconds(),
 		})
 		writeProxyError(w, apierr.Newf(502, "provider_unreachable",
@@ -187,7 +187,7 @@ func (s *Server) relayUnary(w http.ResponseWriter, auth *Auth, route *catalog.Ro
 	}
 	if err != nil {
 		s.recordUsageAsync(auth, route, endpoint, usageOutcome{
-			StatusCode: resp.StatusCode, Outcome: "upstream_error",
+			StatusCode: resp.StatusCode, Outcome: "upstream_error", ErrorKind: errClass(err),
 			Streamed: streamed, DurationMs: time.Since(started).Milliseconds(),
 		})
 		writeProxyError(w, apierr.Newf(502, "provider_unreachable",
@@ -198,16 +198,16 @@ func (s *Server) relayUnary(w http.ResponseWriter, auth *Auth, route *catalog.Ro
 	if contentType == "" {
 		contentType = "application/json"
 	}
-	outcome := "ok"
+	outcome, kind := "ok", ""
 	var usage map[string]any
 	if resp.StatusCode >= 400 {
-		outcome = "upstream_error"
+		outcome, kind = "upstream_error", errorKindFromBody(data)
 		w.Header().Set("x-llmproxy-error-source", "upstream")
 	} else if strings.HasPrefix(contentType, "application/json") {
 		usage = extractUsage(data)
 	}
 	s.recordUsageAsync(auth, route, endpoint, usageOutcome{
-		StatusCode: resp.StatusCode, Outcome: outcome, Streamed: streamed,
+		StatusCode: resp.StatusCode, Outcome: outcome, ErrorKind: kind, Streamed: streamed,
 		Usage: usage, DurationMs: time.Since(started).Milliseconds(),
 	})
 	w.Header().Set("Content-Type", contentType)
@@ -230,7 +230,7 @@ func (s *Server) relayStream(w http.ResponseWriter, r *http.Request, auth *Auth,
 	flusher, _ := w.(http.Flusher)
 
 	var usage map[string]any
-	outcome := "ok"
+	outcome, kind := "ok", ""
 	cancelled := false
 	var pending []byte
 	buf := make([]byte, 32*1024)
@@ -268,7 +268,7 @@ func (s *Server) relayStream(w http.ResponseWriter, r *http.Request, auth *Auth,
 			if r.Context().Err() != nil {
 				outcome, cancelled = "cancelled", true
 			} else {
-				outcome = "upstream_error"
+				outcome, kind = "upstream_error", errClass(readErr)
 			}
 			break
 		}
@@ -279,7 +279,7 @@ func (s *Server) relayStream(w http.ResponseWriter, r *http.Request, auth *Auth,
 		usage = mergeUsage(usage, u)
 	}
 	s.recordUsageAsync(auth, route, endpoint, usageOutcome{
-		StatusCode: resp.StatusCode, Outcome: outcome, Cancelled: cancelled,
+		StatusCode: resp.StatusCode, Outcome: outcome, ErrorKind: kind, Cancelled: cancelled,
 		Streamed: true, Usage: usage, DurationMs: time.Since(started).Milliseconds(),
 	})
 }

@@ -23,10 +23,10 @@ func (s *Store) InsertUsageEvent(ctx context.Context, ev *UsageEvent, quantities
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, s.q(`
 		INSERT INTO usage_event (id, ts, principal_id, api_key_id, provider_id, alias, upstream_name,
-			endpoint, client, tags, status_code, outcome, cancelled, streamed, cost, unpriced, duration_ms)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			endpoint, client, tags, status_code, outcome, error_kind, cancelled, streamed, cost, unpriced, duration_ms)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		ev.ID, ev.TS, ev.PrincipalID, ev.APIKeyID, ev.ProviderID, ev.Alias, ev.UpstreamName,
-		ev.Endpoint, ev.Client, ev.Tags, ev.StatusCode, ev.Outcome, boolInt(ev.Cancelled), boolInt(ev.Streamed),
+		ev.Endpoint, ev.Client, ev.Tags, ev.StatusCode, ev.Outcome, ev.ErrorKind, boolInt(ev.Cancelled), boolInt(ev.Streamed),
 		ev.Cost, boolInt(ev.Unpriced), ev.DurationMs); err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func (s *Store) InsertUsageEvent(ctx context.Context, ev *UsageEvent, quantities
 func (s *Store) ListUsageEvents(ctx context.Context) ([]UsageEvent, error) {
 	rows, err := s.db.QueryContext(ctx, s.q(`
 		SELECT id, ts, principal_id, api_key_id, provider_id, alias, upstream_name, endpoint,
-			client, tags, status_code, outcome, cancelled, streamed, cost, unpriced, duration_ms
+			client, tags, status_code, outcome, error_kind, cancelled, streamed, cost, unpriced, duration_ms
 		FROM usage_event ORDER BY ts`))
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func (s *Store) ListUsageEvents(ctx context.Context) ([]UsageEvent, error) {
 		var cancelled, streamed, unpriced int64
 		if err := rows.Scan(&ev.ID, &ev.TS, &ev.PrincipalID, &ev.APIKeyID, &ev.ProviderID,
 			&ev.Alias, &ev.UpstreamName, &ev.Endpoint, &ev.Client, &ev.Tags, &ev.StatusCode, &ev.Outcome,
-			&cancelled, &streamed, &ev.Cost, &unpriced, &ev.DurationMs); err != nil {
+			&ev.ErrorKind, &cancelled, &streamed, &ev.Cost, &unpriced, &ev.DurationMs); err != nil {
 			return nil, err
 		}
 		ev.Cancelled = cancelled != 0
@@ -100,7 +100,7 @@ func (s *Store) ListRequests(ctx context.Context, f UsageFilter, limit, offset i
 	rows, err := s.db.QueryContext(ctx, s.q(`
 		SELECT e.id, e.ts, COALESCE(pp.name, e.principal_id), `+providerNameSQL+`, e.alias, e.endpoint,
 			e.client, e.tags, e.api_key_id, COALESCE(k.label, ''), COALESCE(k.key_suffix, ''), e.outcome,
-			e.status_code, e.streamed, e.cancelled, e.cost, e.unpriced, e.duration_ms
+			e.error_kind, e.status_code, e.streamed, e.cancelled, e.cost, e.unpriced, e.duration_ms
 		FROM usage_event e
 			LEFT JOIN principal pp ON e.principal_id = pp.id
 			LEFT JOIN provider p ON e.provider_id = p.id
@@ -118,7 +118,7 @@ func (s *Store) ListRequests(ctx context.Context, f UsageFilter, limit, offset i
 		var streamed, cancelled, unpriced int64
 		if err := rows.Scan(&r.ID, &r.TS, &r.PrincipalName, &r.Provider, &r.Alias, &r.Endpoint,
 			&r.Client, &r.Tags, &r.APIKeyID, &r.KeyLabel, &r.KeySuffix, &r.Outcome,
-			&r.StatusCode, &streamed, &cancelled, &r.Cost, &unpriced, &r.DurationMs); err != nil {
+			&r.ErrorKind, &r.StatusCode, &streamed, &cancelled, &r.Cost, &unpriced, &r.DurationMs); err != nil {
 			return nil, err
 		}
 		r.Streamed = streamed != 0
@@ -383,6 +383,14 @@ func usageWhere(f UsageFilter) (string, []any) {
 	// real app, and the leading comma keeps "app:" from matching a longer key.
 	if f.AppTagged {
 		where += ` AND (',' || e.tags || ',') LIKE '%,app:%'`
+	}
+	// "failed" is the meta value: every outcome that is not ok, cancellations
+	// included; anything else matches the stored outcome exactly.
+	if f.Outcome == "failed" {
+		where += ` AND e.outcome <> 'ok'`
+	} else if f.Outcome != "" {
+		where += ` AND e.outcome = ?`
+		args = append(args, f.Outcome)
 	}
 	if f.Since != "" {
 		where += ` AND e.ts >= ?`

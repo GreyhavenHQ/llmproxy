@@ -67,6 +67,7 @@ var migrations = []migration{
 	addColumn("004_principal_sessions_revoked_before", "principal", "sessions_revoked_before", "TEXT"),
 	addColumn("005_usage_event_client", "usage_event", "client", "TEXT NOT NULL DEFAULT ''"),
 	addColumn("006_usage_event_tags", "usage_event", "tags", "TEXT NOT NULL DEFAULT ''"),
+	addColumn("007_usage_event_error_kind", "usage_event", "error_kind", "TEXT NOT NULL DEFAULT ''"),
 }
 
 // migrate applies every pending migration in order. Each runs in its own

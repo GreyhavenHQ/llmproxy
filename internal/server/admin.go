@@ -1088,6 +1088,7 @@ func (s *Server) serveRequestLog(w http.ResponseWriter, r *http.Request) {
 			"key_label":   ev.KeyLabel,
 			"key_suffix":  ev.KeySuffix,
 			"outcome":     ev.Outcome,
+			"error_kind":  ev.ErrorKind,
 			"status_code": nil,
 			"streamed":    ev.Streamed,
 			"cancelled":   ev.Cancelled,

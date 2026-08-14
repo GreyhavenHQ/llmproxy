@@ -113,6 +113,10 @@ func tagsFrom(r *http.Request) string {
 type usageOutcome struct {
 	StatusCode int
 	Outcome    string // ok | upstream_error | unreachable | cancelled
+	// ErrorKind classifies a failure: errClass's transport class on
+	// unreachable, the upstream's error type/code token on upstream_error.
+	// Empty otherwise. A token, never a message.
+	ErrorKind  string
 	Cancelled  bool
 	Streamed   bool
 	Usage      map[string]any
@@ -274,6 +278,7 @@ func (s *Server) recordUsage(ctx context.Context, auth *Auth, route *catalog.Rou
 		Client:       auth.Client,
 		Tags:         auth.Tags,
 		Outcome:      rec.Outcome,
+		ErrorKind:    rec.ErrorKind,
 		Cancelled:    rec.Cancelled,
 		Streamed:     rec.Streamed,
 		DurationMs:   rec.DurationMs,

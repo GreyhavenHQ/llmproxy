@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/monadical/llmproxy/internal/apierr"
 	"github.com/monadical/llmproxy/internal/store"
 )
 
@@ -52,6 +53,14 @@ func (s *Server) statsFilter(w http.ResponseWriter, r *http.Request) (store.Usag
 	for i, tag := range tags {
 		tags[i] = strings.ToLower(tag)
 	}
+	// Validated rather than passed through: a typo silently matching nothing
+	// would read as "no failures".
+	outcome := r.URL.Query().Get("outcome")
+	if outcome != "" && !outcomeFilters[outcome] {
+		writeProxyError(w, apierr.New(400, "invalid_outcome",
+			"'outcome' must be ok, upstream_error, unreachable, cancelled or failed"))
+		return store.UsageFilter{}, false
+	}
 	return store.UsageFilter{
 		PrincipalID: principalID,
 		APIKeyID:    r.URL.Query().Get("key"),
@@ -61,6 +70,7 @@ func (s *Server) statsFilter(w http.ResponseWriter, r *http.Request) (store.Usag
 		Client:      r.URL.Query().Get("client"),
 		Tags:        tags,
 		AppTagged:   r.URL.Query().Get("app_tagged") == "1",
+		Outcome:     outcome,
 		Since:       since,
 		Until:       until,
 	}, true
