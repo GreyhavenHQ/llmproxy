@@ -51,7 +51,6 @@ type Provider struct {
 	CAPEM                sql.NullString
 	TimeoutConnect       float64
 	TimeoutRead          float64
-	TimeoutWrite         float64
 	MaxConcurrency       sql.NullInt64
 	Enabled              bool
 	CreatedAt            string

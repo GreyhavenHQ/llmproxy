@@ -64,7 +64,6 @@ CREATE TABLE IF NOT EXISTS provider (
     ca_pem TEXT,
     timeout_connect DOUBLE PRECISION NOT NULL DEFAULT 10,
     timeout_read DOUBLE PRECISION NOT NULL DEFAULT 300,
-    timeout_write DOUBLE PRECISION NOT NULL DEFAULT 30,
     max_concurrency INTEGER,
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL

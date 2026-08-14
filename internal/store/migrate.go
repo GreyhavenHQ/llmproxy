@@ -68,6 +68,17 @@ var migrations = []migration{
 	addColumn("005_usage_event_client", "usage_event", "client", "TEXT NOT NULL DEFAULT ''"),
 	addColumn("006_usage_event_tags", "usage_event", "tags", "TEXT NOT NULL DEFAULT ''"),
 	addColumn("007_usage_event_error_kind", "usage_event", "error_kind", "TEXT NOT NULL DEFAULT ''"),
+	{version: "008_drop_provider_timeout_write", apply: func(ctx context.Context, tx *sql.Tx, s *Store) error {
+		// The setting was stored but never enforced anywhere; dropped rather
+		// than left as a lie in the API. Guarded so a fresh database, whose
+		// base Schema no longer declares it, is a clean no-op.
+		exists, err := s.columnExists(ctx, tx, "provider", "timeout_write")
+		if err != nil || !exists {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, "ALTER TABLE provider DROP COLUMN timeout_write")
+		return err
+	}},
 }
 
 // migrate applies every pending migration in order. Each runs in its own

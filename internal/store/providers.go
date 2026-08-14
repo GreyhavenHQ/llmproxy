@@ -9,13 +9,13 @@ import (
 )
 
 const providerColumns = `id, name, wire_format, base_url, credential_ciphertext, verify_tls,
-	ca_pem, timeout_connect, timeout_read, timeout_write, max_concurrency, enabled, created_at`
+	ca_pem, timeout_connect, timeout_read, max_concurrency, enabled, created_at`
 
 func scanProvider(row interface{ Scan(...any) error }) (*Provider, error) {
 	var p Provider
 	var verifyTLS, enabled int64
 	err := row.Scan(&p.ID, &p.Name, &p.WireFormat, &p.BaseURL, &p.CredentialCiphertext,
-		&verifyTLS, &p.CAPEM, &p.TimeoutConnect, &p.TimeoutRead, &p.TimeoutWrite,
+		&verifyTLS, &p.CAPEM, &p.TimeoutConnect, &p.TimeoutRead,
 		&p.MaxConcurrency, &enabled, &p.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -62,10 +62,10 @@ func (s *Store) CreateProvider(ctx context.Context, p *Provider, overrides map[s
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, s.q(`
 		INSERT INTO provider (id, name, wire_format, base_url, credential_ciphertext, verify_tls,
-			ca_pem, timeout_connect, timeout_read, timeout_write, max_concurrency, enabled, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			ca_pem, timeout_connect, timeout_read, max_concurrency, enabled, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		p.ID, p.Name, p.WireFormat, p.BaseURL, p.CredentialCiphertext, boolInt(p.VerifyTLS),
-		p.CAPEM, p.TimeoutConnect, p.TimeoutRead, p.TimeoutWrite, p.MaxConcurrency,
+		p.CAPEM, p.TimeoutConnect, p.TimeoutRead, p.MaxConcurrency,
 		boolInt(p.Enabled), p.CreatedAt); err != nil {
 		return err
 	}
@@ -90,8 +90,11 @@ func (s *Store) UpdateProvider(ctx context.Context, p *Provider, audit *Audit) e
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, s.q(`
-		UPDATE provider SET base_url = ?, credential_ciphertext = ?, enabled = ? WHERE id = ?`),
-		p.BaseURL, p.CredentialCiphertext, boolInt(p.Enabled), p.ID); err != nil {
+		UPDATE provider SET base_url = ?, credential_ciphertext = ?, enabled = ?,
+			verify_tls = ?, timeout_connect = ?, timeout_read = ?, max_concurrency = ?
+		WHERE id = ?`),
+		p.BaseURL, p.CredentialCiphertext, boolInt(p.Enabled),
+		boolInt(p.VerifyTLS), p.TimeoutConnect, p.TimeoutRead, p.MaxConcurrency, p.ID); err != nil {
 		return err
 	}
 	if err := s.auditTx(ctx, tx, audit); err != nil {

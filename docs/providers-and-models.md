@@ -60,7 +60,6 @@ curl -s $P/admin/v1/providers -H "authorization: Bearer $ADMIN" \
   "has_custom_ca": false,
   "timeout_connect": 10,
   "timeout_read": 300,
-  "timeout_write": 30,
   "max_concurrency": null,
   "enabled": true,
   "created_at": "2026-07-29T09:14:02.114523Z"
@@ -72,7 +71,14 @@ unauthenticated upstreams and is sent upstream as `Authorization: Bearer`.
 Timeouts are seconds; `timeout_read` doubles as the deadline for unary
 requests (streams are unbounded by design and end when the upstream or caller
 does). `max_concurrency` caps connections per upstream host; omitted means
-unlimited. A duplicate name gets 409 `provider_exists`.
+unlimited, and it only bounds request concurrency on HTTP/1.1 upstreams
+(HTTP/2 multiplexes many requests per connection). A duplicate name gets 409
+`provider_exists`.
+
+`PATCH /admin/v1/providers/{name}` edits a provider in place: `enabled`,
+`base_url`, `api_key`/`remove_credential`, `verify_tls`, `timeout_connect`,
+`timeout_read` and `max_concurrency` (zero clears the cap). The same
+settings are editable from the Providers admin page via the edit button.
 
 ### TLS options
 

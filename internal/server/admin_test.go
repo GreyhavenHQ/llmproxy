@@ -495,3 +495,53 @@ func TestUsageSeriesBuckets(t *testing.T) {
 		t.Fatalf("want 400 invalid_bucket, got %d %s", resp.StatusCode, body)
 	}
 }
+
+// Timeouts, the concurrency cap and TLS verification are editable in place;
+// zero clears the cap back to unlimited, and a rejected patch changes nothing.
+func TestProviderPatchOperationalSettings(t *testing.T) {
+	e := newEnv(t)
+	resp, body := e.request(t, "PATCH", "/admin/v1/providers/fake", e.adminKey, map[string]any{
+		"timeout_connect": 5, "timeout_read": 120, "max_concurrency": 8, "verify_tls": false,
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("patch: %d %s", resp.StatusCode, body)
+	}
+	_, body = e.request(t, "GET", "/admin/v1/providers/fake", e.adminKey, nil)
+	view := decode(t, body)
+	if view["timeout_connect"].(float64) != 5 || view["timeout_read"].(float64) != 120 ||
+		view["max_concurrency"].(float64) != 8 || view["verify_tls"].(bool) != false {
+		t.Fatalf("patched values did not persist: %s", body)
+	}
+	if _, present := view["timeout_write"]; present {
+		t.Fatalf("timeout_write still in the provider view: %s", body)
+	}
+
+	// Zero clears the cap; the view reports unlimited as null.
+	resp, _ = e.request(t, "PATCH", "/admin/v1/providers/fake", e.adminKey,
+		map[string]any{"max_concurrency": 0})
+	if resp.StatusCode != 200 {
+		t.Fatalf("clear cap: %d", resp.StatusCode)
+	}
+	_, body = e.request(t, "GET", "/admin/v1/providers/fake", e.adminKey, nil)
+	if decode(t, body)["max_concurrency"] != nil {
+		t.Fatalf("cleared cap still set: %s", body)
+	}
+
+	// A non-positive timeout is rejected, and the stored value stays put.
+	resp, body = e.request(t, "PATCH", "/admin/v1/providers/fake", e.adminKey,
+		map[string]any{"timeout_read": 0})
+	if resp.StatusCode != 400 || errorCode(t, body) != "invalid_timeout" {
+		t.Fatalf("zero timeout accepted: %d %s", resp.StatusCode, body)
+	}
+	_, body = e.request(t, "GET", "/admin/v1/providers/fake", e.adminKey, nil)
+	if decode(t, body)["timeout_read"].(float64) != 120 {
+		t.Fatalf("timeout_read changed by a rejected patch: %s", body)
+	}
+
+	// The proxy still serves through the edited provider.
+	resp, _ = e.request(t, "POST", "/v1/chat/completions", e.memberKey,
+		map[string]any{"model": "alpha", "messages": []any{map[string]any{"role": "user", "content": "hi"}}})
+	if resp.StatusCode != 200 {
+		t.Fatalf("inference after provider edit: %d", resp.StatusCode)
+	}
+}

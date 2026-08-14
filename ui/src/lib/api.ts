@@ -138,6 +138,13 @@ export interface Provider {
   name: string
   base_url: string
   has_credential: boolean
+  verify_tls: boolean
+  timeout_connect: number
+  // timeout_read caps the wait for response headers, and bounds whole
+  // non-streaming requests.
+  timeout_read: number
+  // null means unlimited.
+  max_concurrency: number | null
   enabled: boolean
 }
 

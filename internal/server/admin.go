@@ -65,7 +65,6 @@ func providerView(p *store.Provider, overrides map[string]string) map[string]any
 		"has_custom_ca":   p.CAPEM.Valid && p.CAPEM.String != "",
 		"timeout_connect": p.TimeoutConnect,
 		"timeout_read":    p.TimeoutRead,
-		"timeout_write":   p.TimeoutWrite,
 		"max_concurrency": nil,
 		"enabled":         p.Enabled,
 		"created_at":      p.CreatedAt,
@@ -89,10 +88,9 @@ func (s *Server) handleProviderCreate(w http.ResponseWriter, r *http.Request, au
 		CAPEM          string            `json:"ca_pem"`
 		TimeoutConnect float64           `json:"timeout_connect"`
 		TimeoutRead    float64           `json:"timeout_read"`
-		TimeoutWrite   float64           `json:"timeout_write"`
 		MaxConcurrency *int64            `json:"max_concurrency"`
 		Endpoints      map[string]string `json:"endpoints"`
-	}{WireFormat: "openai", TimeoutConnect: 10, TimeoutRead: 300, TimeoutWrite: 30}
+	}{WireFormat: "openai", TimeoutConnect: 10, TimeoutRead: 300}
 	if perr := readJSONBody(r, 1<<20, &body); perr != nil {
 		writeProxyError(w, perr)
 		return
@@ -139,7 +137,6 @@ func (s *Server) handleProviderCreate(w http.ResponseWriter, r *http.Request, au
 		VerifyTLS:      body.VerifyTLS == nil || *body.VerifyTLS,
 		TimeoutConnect: body.TimeoutConnect,
 		TimeoutRead:    body.TimeoutRead,
-		TimeoutWrite:   body.TimeoutWrite,
 		Enabled:        true,
 	}
 	if body.CAPEM != "" {
@@ -208,14 +205,25 @@ func (s *Server) handleProviderGet(w http.ResponseWriter, r *http.Request, auth 
 
 func (s *Server) handleProviderPatch(w http.ResponseWriter, r *http.Request, auth *Auth) {
 	var body struct {
-		Enabled          *bool   `json:"enabled"`
-		BaseURL          *string `json:"base_url"`
-		APIKey           *string `json:"api_key"`
-		RemoveCredential bool    `json:"remove_credential"`
+		Enabled          *bool    `json:"enabled"`
+		BaseURL          *string  `json:"base_url"`
+		APIKey           *string  `json:"api_key"`
+		RemoveCredential bool     `json:"remove_credential"`
+		VerifyTLS        *bool    `json:"verify_tls"`
+		TimeoutConnect   *float64 `json:"timeout_connect"`
+		TimeoutRead      *float64 `json:"timeout_read"`
+		// MaxConcurrency zero or negative clears the cap back to unlimited.
+		MaxConcurrency *int64 `json:"max_concurrency"`
 	}
 	if perr := readJSONBody(r, 1<<20, &body); perr != nil {
 		writeProxyError(w, perr)
 		return
+	}
+	for _, timeout := range []*float64{body.TimeoutConnect, body.TimeoutRead} {
+		if timeout != nil && *timeout <= 0 {
+			writeProxyError(w, apierr.New(400, "invalid_timeout", "timeouts must be positive seconds"))
+			return
+		}
 	}
 	provider := s.getProviderOr404(w, r)
 	if provider == nil {
@@ -230,6 +238,18 @@ func (s *Server) handleProviderPatch(w http.ResponseWriter, r *http.Request, aut
 			return
 		}
 		provider.BaseURL = strings.TrimRight(*body.BaseURL, "/")
+	}
+	if body.VerifyTLS != nil {
+		provider.VerifyTLS = *body.VerifyTLS
+	}
+	if body.TimeoutConnect != nil {
+		provider.TimeoutConnect = *body.TimeoutConnect
+	}
+	if body.TimeoutRead != nil {
+		provider.TimeoutRead = *body.TimeoutRead
+	}
+	if body.MaxConcurrency != nil {
+		provider.MaxConcurrency = sql.NullInt64{Int64: *body.MaxConcurrency, Valid: *body.MaxConcurrency > 0}
 	}
 	if body.RemoveCredential || (body.APIKey != nil && *body.APIKey == "") {
 		provider.CredentialCiphertext = sql.NullString{}

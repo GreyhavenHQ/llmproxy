@@ -393,7 +393,7 @@ func (e *env) seed(t *testing.T) {
 	provider := &store.Provider{
 		Name: "fake", WireFormat: "openai", BaseURL: e.upstream.srv.URL + "/v1",
 		CredentialCiphertext: sql.NullString{String: encrypted, Valid: true},
-		VerifyTLS:            true, TimeoutConnect: 5, TimeoutRead: 30, TimeoutWrite: 30, Enabled: true,
+		VerifyTLS:            true, TimeoutConnect: 5, TimeoutRead: 30, Enabled: true,
 	}
 	if err := e.st.CreateProvider(ctx, provider, nil, nil); err != nil {
 		t.Fatal(err)

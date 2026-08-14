@@ -61,7 +61,6 @@ type Route struct {
 	CAPEM          string
 	TimeoutConnect time.Duration
 	TimeoutRead    time.Duration
-	TimeoutWrite   time.Duration
 	MaxConcurrency int
 	Alias          string
 	// TargetAlias is the alias this one points at, empty when the model
@@ -84,7 +83,7 @@ func (r *Route) EndpointURL(endpoint string) string {
 func (r *Route) ClientKey() string {
 	return strings.Join([]string{
 		r.ProviderID, r.BaseURL, boolStr(r.VerifyTLS), r.CAPEM,
-		r.TimeoutConnect.String(), r.TimeoutRead.String(), r.TimeoutWrite.String(),
+		r.TimeoutConnect.String(), r.TimeoutRead.String(),
 		time.Duration(r.MaxConcurrency).String(),
 	}, "\x00")
 }
@@ -199,7 +198,6 @@ func (c *Catalog) load(ctx context.Context, alias string) (*Route, error) {
 		CAPEM:          provider.CAPEM.String,
 		TimeoutConnect: time.Duration(provider.TimeoutConnect * float64(time.Second)),
 		TimeoutRead:    time.Duration(provider.TimeoutRead * float64(time.Second)),
-		TimeoutWrite:   time.Duration(provider.TimeoutWrite * float64(time.Second)),
 		MaxConcurrency: int(provider.MaxConcurrency.Int64),
 		Alias:          binding.Alias,
 		TargetAlias:    binding.TargetAlias,
@@ -230,7 +228,6 @@ func RouteForProvider(p *store.Provider, secret []byte) (*Route, error) {
 		CAPEM:          p.CAPEM.String,
 		TimeoutConnect: time.Duration(p.TimeoutConnect * float64(time.Second)),
 		TimeoutRead:    time.Duration(p.TimeoutRead * float64(time.Second)),
-		TimeoutWrite:   time.Duration(p.TimeoutWrite * float64(time.Second)),
 		MaxConcurrency: int(p.MaxConcurrency.Int64),
 		Capabilities:   map[string]bool{},
 		URLOverrides:   map[string]string{},

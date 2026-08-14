@@ -89,7 +89,7 @@ func (s *Server) ensureProviderFor(w http.ResponseWriter, r *http.Request, auth 
 
 	p := &store.Provider{
 		Name: candidate, WireFormat: "openai", BaseURL: base,
-		VerifyTLS: true, TimeoutConnect: 10, TimeoutRead: 300, TimeoutWrite: 30, Enabled: true,
+		VerifyTLS: true, TimeoutConnect: 10, TimeoutRead: 300, Enabled: true,
 	}
 	if apiKey != "" {
 		encrypted, err := secrets.EncryptCredential(s.secret, apiKey)

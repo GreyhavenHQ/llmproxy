@@ -145,7 +145,7 @@ func main() {
 
 	provider := &store.Provider{
 		Name: "stress", WireFormat: "openai", BaseURL: upstream.URL + "/v1",
-		VerifyTLS: true, TimeoutConnect: 5, TimeoutRead: 60, TimeoutWrite: 30, Enabled: true,
+		VerifyTLS: true, TimeoutConnect: 5, TimeoutRead: 60, Enabled: true,
 	}
 	if err := st.CreateProvider(ctx, provider, nil, nil); err != nil {
 		panic(err)

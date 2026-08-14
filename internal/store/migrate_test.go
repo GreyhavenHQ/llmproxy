@@ -93,3 +93,31 @@ func TestMigrateUpgradesLegacyDump(t *testing.T) {
 		t.Fatalf("api_key count = %d, want 1 (revoked row deleted)", n)
 	}
 }
+
+// A database created when provider.timeout_write existed loses the column on
+// migration; a fresh database, whose Schema never declares it, is a no-op.
+func TestMigrateDropsTimeoutWrite(t *testing.T) {
+	ctx := context.Background()
+	st := openTemp(t)
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	// Simulate the old schema, then wipe the migration record so it reruns.
+	if _, err := st.db.Exec(`ALTER TABLE provider ADD COLUMN timeout_write DOUBLE PRECISION NOT NULL DEFAULT 30`); err != nil {
+		t.Fatalf("re-add column: %v", err)
+	}
+	if _, err := st.db.Exec(`DELETE FROM schema_migration WHERE version = '008_drop_provider_timeout_write'`); err != nil {
+		t.Fatalf("forget migration: %v", err)
+	}
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("re-init: %v", err)
+	}
+	var n int
+	if err := st.db.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('provider') WHERE name = 'timeout_write'`).Scan(&n); err != nil {
+		t.Fatalf("column check: %v", err)
+	}
+	if n != 0 {
+		t.Fatal("timeout_write survived the migration")
+	}
+}

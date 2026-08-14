@@ -479,7 +479,6 @@ components:
         - has_custom_ca
         - timeout_connect
         - timeout_read
-        - timeout_write
         - max_concurrency
         - enabled
         - created_at
@@ -505,9 +504,6 @@ components:
           type: number
           description: Seconds.
         timeout_read:
-          type: number
-          description: Seconds.
-        timeout_write:
           type: number
           description: Seconds.
         max_concurrency:
@@ -558,10 +554,6 @@ components:
           type: number
           default: 300
           description: Seconds. Also the unary request deadline.
-        timeout_write:
-          type: number
-          default: 30
-          description: Seconds.
         max_concurrency:
           type: integer
           description: Max connections per upstream host; omitted means unlimited.
@@ -588,6 +580,19 @@ components:
             credential (same as `remove_credential: true`).
         remove_credential:
           type: boolean
+        verify_tls:
+          type: boolean
+        timeout_connect:
+          type: number
+          description: Seconds; must be positive.
+        timeout_read:
+          type: number
+          description: Seconds; must be positive. Also the unary request deadline.
+        max_concurrency:
+          type: integer
+          description: >
+            Max connections per upstream host. Zero or negative clears the
+            cap back to unlimited.
 
     DiscoveredModels:
       type: object
