@@ -90,9 +90,9 @@ function ThemeToggle() {
 // tab with a sub-nav, keeping the member-facing nav identical for everyone.
 const ADMIN_SUBS = ['providers', 'models', 'users', 'services', 'all-keys']
 
-// The Usage tab has its own second segment (/usage/apps), kept in a separate
-// field so the admin sub-nav is untouched by it.
-const USAGE_SUBS = ['overview', 'apps']
+// The Usage tab has its own second segment (/usage/apps, /usage/errors),
+// kept in a separate field so the admin sub-nav is untouched by it.
+const USAGE_SUBS = ['overview', 'apps', 'errors']
 
 interface Nav {
   tab: string

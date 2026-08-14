@@ -554,6 +554,8 @@ export interface ShareRow {
   /** Full untruncated identity, shown on hover (e.g. the raw User-Agent set). */
   title?: string
   value: number
+  /** A quieter figure after the value (e.g. the row's own error rate). */
+  note?: string
 }
 
 // ShareBars: magnitude comparison as a labelled meter list, one accent hue.
@@ -587,6 +589,7 @@ export function ShareBars({
           </span>
           <span className="tabular-nums text-muted-foreground">
             {format(row.value)}
+            {row.note && <span className="ml-2 text-xs">{row.note}</span>}
             <span className="ml-2 inline-block w-12 text-right text-foreground">
               {((row.value / total) * 100).toFixed(1)}%
             </span>

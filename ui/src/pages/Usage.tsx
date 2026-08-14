@@ -1,13 +1,15 @@
-// The Usage tab and its two panes. The subtab rides in the URL as a second
-// segment (/usage, /usage/apps), handled in App.tsx.
+// The Usage tab and its panes. The subtab rides in the URL as a second
+// segment (/usage, /usage/apps, /usage/errors), handled in App.tsx.
 
 import { UsageDashboard } from '@/components/UsageDashboard'
 import { AppsUsage } from '@/components/AppsUsage'
+import { ErrorsDashboard } from '@/components/ErrorsDashboard'
 import { cn } from '@/lib/utils'
 
 const SUBS = [
   { key: 'overview', label: 'Overview' },
   { key: 'apps', label: 'Apps' },
+  { key: 'errors', label: 'Errors' },
 ]
 
 // A quieter control than the admin sub-nav: underlined links, one text row.
@@ -46,7 +48,13 @@ export function Usage({
   return (
     <div className="flex flex-col gap-6">
       <SubNav value={sub} onChange={onSubChange} />
-      {sub === 'apps' ? <AppsUsage /> : <UsageDashboard ssoEnabled={ssoEnabled} />}
+      {sub === 'apps' ? (
+        <AppsUsage />
+      ) : sub === 'errors' ? (
+        <ErrorsDashboard />
+      ) : (
+        <UsageDashboard ssoEnabled={ssoEnabled} />
+      )}
     </div>
   )
 }

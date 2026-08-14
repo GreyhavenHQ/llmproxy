@@ -3,19 +3,28 @@
 // than what it shows. Dropdown options come from a facets call scoped to the
 // selected window, which sees failures too; the usage summary would not.
 //
+// The table keeps eight columns: who, what, how it went, what it cost, how
+// long it took. Everything else (endpoint, key, exact client, tags, per-unit
+// tokens) lives one click away in the expanded row, so the table fits the
+// card at any width without losing detail. Filters seed from the URL query,
+// so the errors dashboard can deep-link a pre-filtered view.
+//
 // Windows are UTC, matching how the proxy stores timestamps and how the
 // usage dashboard buckets. Metadata only; no request or response content is
 // recorded anywhere to show.
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   api,
   clientFamily,
+  formatCompact,
   formatCost,
   formatDate,
+  formatDuration,
   formatNumber,
   formatTokens,
   tagPairs,
+  tagValue,
   type RequestFacets,
   type RequestPage,
   type RequestRow,
@@ -48,7 +57,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ChevronLeft, ChevronRight, FilterX, RefreshCw } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  FilterX,
+  RefreshCw,
+  Zap,
+} from 'lucide-react'
 
 interface Range {
   key: string
@@ -66,6 +82,14 @@ const RANGES: Range[] = [
 
 const PAGE_SIZES = [25, 50, 100, 200]
 
+const OUTCOME_OPTIONS: FilterOption[] = [
+  { value: 'failed', label: 'Errors only' },
+  { value: 'upstream_error', label: 'Provider errors' },
+  { value: 'unreachable', label: 'Unreachable' },
+  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'ok', label: 'OK only' },
+]
+
 // A date input holds a UTC day: "2026-08-07" means that day 00:00Z. from is
 // inclusive, to is inclusive of the whole day, so it ends at the next
 // midnight (the server's until is exclusive).
@@ -80,23 +104,33 @@ function dayEnd(day: string): string | null {
   return d.toISOString()
 }
 
+// shortTime keeps the column narrow; the full local timestamp stays on hover.
+function shortTime(ts: string): string {
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return ts
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
 function OutcomeBadge({ row }: { row: RequestRow }) {
   if (row.cancelled) return <Badge variant="warning">cancelled</Badge>
-  if (row.outcome === 'ok') {
-    return <Badge variant="success">ok{row.streamed ? ' · stream' : ''}</Badge>
-  }
+  if (row.outcome === 'ok') return <Badge variant="success">ok</Badge>
   return (
     <Badge variant="destructive">
-      {row.outcome}
+      {row.error_kind || row.outcome}
       {row.status_code ? ` · ${row.status_code}` : ''}
     </Badge>
   )
 }
 
 // UserCell: the caller, with the last four of the key they used trailing it.
-// Both filters are in the row above, so the key needs no column of its own;
-// the label rides along in the tooltip. Relay traffic carries a relay token
-// rather than a key, so those rows show the name alone.
+// Relay traffic carries a relay token rather than a key, so those rows show
+// the name alone.
 function UserCell({ row }: { row: RequestRow }) {
   return (
     <span className="whitespace-nowrap">
@@ -113,17 +147,131 @@ function UserCell({ row }: { row: RequestRow }) {
   )
 }
 
+// AppCell: the app tag when the caller sent one, the client family as a
+// fallback. The exact User-Agent and the full tag list live in the expanded
+// row.
+function AppCell({ row }: { row: RequestRow }) {
+  const app = tagValue(row.tags, 'app')
+  if (app) {
+    return (
+      <Badge variant="tag" size="sm" className="font-mono">
+        {app}
+      </Badge>
+    )
+  }
+  if (row.client) {
+    return (
+      <span className="font-mono text-xs text-muted-foreground" title={row.client}>
+        {clientFamily(row.client)}
+      </span>
+    )
+  }
+  return <span className="text-muted-foreground">—</span>
+}
+
+function TokensCell({ row }: { row: RequestRow }) {
+  const input = row.units['input_tokens']
+  const output = row.units['output_tokens']
+  if (!input && !output) return <span className="text-muted-foreground">—</span>
+  return (
+    <span className="whitespace-nowrap tabular-nums">
+      {formatCompact(input ?? 0)}
+      <span className="text-muted-foreground"> → </span>
+      {formatCompact(output ?? 0)}
+    </span>
+  )
+}
+
+// One labelled figure of the expanded row.
+function Detail({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-sm">{children}</span>
+    </div>
+  )
+}
+
+function RowDetails({ row }: { row: RequestRow }) {
+  const units = Object.entries(row.units).sort()
+  return (
+    <div className="grid grid-cols-2 gap-x-8 gap-y-3 py-2 md:grid-cols-4">
+      <Detail label="Provider">
+        <span className="font-mono text-xs">{row.provider || '—'}</span>
+      </Detail>
+      <Detail label="Endpoint">{row.endpoint}</Detail>
+      <Detail label="Key">
+        {row.key_suffix ? (
+          <span className="font-mono text-xs">
+            {row.key_label ? `${row.key_label} ` : ''}···{row.key_suffix}
+          </span>
+        ) : (
+          '—'
+        )}
+      </Detail>
+      <Detail label="Recorded (UTC)">
+        <span className="font-mono text-xs">{row.ts.replace('T', ' ').slice(0, 19)}</span>
+      </Detail>
+      <Detail label="Client">
+        <span className="break-all font-mono text-xs">{row.client || '—'}</span>
+      </Detail>
+      <Detail label="Tags">
+        {row.tags ? (
+          <span className="flex flex-wrap gap-1">
+            {tagPairs(row.tags).map((pair) => (
+              <Badge key={pair} variant="tag" size="sm" className="font-mono">
+                {pair}
+              </Badge>
+            ))}
+          </span>
+        ) : (
+          '—'
+        )}
+      </Detail>
+      <Detail label="Outcome">
+        {row.outcome}
+        {row.error_kind ? ` · ${row.error_kind}` : ''}
+        {row.status_code ? ` · http ${row.status_code}` : ''}
+        {row.streamed ? ' · streamed' : ''}
+      </Detail>
+      <Detail label="Cost">
+        {row.cost !== null ? (
+          <span className="tabular-nums">{formatCost(row.cost)}</span>
+        ) : row.unpriced ? (
+          <span className="text-muted-foreground">unpriced</span>
+        ) : (
+          '—'
+        )}
+      </Detail>
+      {units.map(([unit, quantity]) => (
+        <Detail key={unit} label={unit.replaceAll('_', ' ')}>
+          <span className="tabular-nums">{formatTokens(quantity) || '0'}</span>
+        </Detail>
+      ))}
+      <Detail label="Duration">
+        <span className="tabular-nums">{formatNumber(row.duration_ms)} ms</span>
+      </Detail>
+    </div>
+  )
+}
+
 export function Requests() {
+  // Filters seed from the URL query once, so /requests?provider=x&outcome=failed
+  // (the errors dashboard's deep link) lands pre-filtered.
+  const initial = useMemo(() => new URLSearchParams(window.location.search), [])
   const [rangeKey, setRangeKey] = useState('7d')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
-  const [principal, setPrincipal] = useState('')
+  const [principal, setPrincipal] = useState(initial.get('principal') ?? '')
   const [keyID, setKeyID] = useState('')
   const [client, setClient] = useState('') // a client family; the server matches on prefix
-  const [model, setModel] = useState('')
-  const [provider, setProvider] = useState('')
+  const [model, setModel] = useState(initial.get('model') ?? '')
+  const [provider, setProvider] = useState(initial.get('provider') ?? '')
+  const [app, setApp] = useState(initial.get('app') ?? '')
+  const [outcome, setOutcome] = useState(initial.get('outcome') ?? '')
   const [pageSize, setPageSize] = useState(50)
   const [page, setPage] = useState(0)
+  const [open, setOpen] = useState<string | null>(null)
 
   // Every fetch, manual or automatic, goes through this counter, so a
   // relative window is recomputed exactly when we refetch and never between
@@ -152,7 +300,9 @@ export function Requests() {
     (keyID ? `&key=${encodeURIComponent(keyID)}` : '') +
     (client ? `&client=${encodeURIComponent(client)}` : '') +
     (model ? `&model=${encodeURIComponent(model)}` : '') +
-    (provider ? `&provider=${encodeURIComponent(provider)}` : '')
+    (provider ? `&provider=${encodeURIComponent(provider)}` : '') +
+    (app ? `&tag=${encodeURIComponent(`app:${app}`)}` : '') +
+    (outcome ? `&outcome=${encodeURIComponent(outcome)}` : '')
 
   const requests = useAsync(
     () =>
@@ -161,7 +311,7 @@ export function Requests() {
           windowQuery +
           filterQuery,
       ),
-    [tick, since, until, principal, keyID, client, model, provider, pageSize, page],
+    [tick, since, until, principal, keyID, client, model, provider, app, outcome, pageSize, page],
   )
   // Options depend on the window only, so they stay put while you narrow.
   const facets = useAsync(
@@ -189,6 +339,7 @@ export function Requests() {
     return (v: T) => {
       set(v)
       setPage(0)
+      setOpen(null)
     }
   }
 
@@ -199,15 +350,23 @@ export function Requests() {
   const clientOptions = [
     ...new Set((facets.data?.clients ?? []).map((c) => clientFamily(c))),
   ].sort()
+  const appOptions = [
+    ...new Set(
+      (facets.data?.tags ?? []).filter((t) => t.startsWith('app:')).map((t) => t.slice(4)),
+    ),
+  ].sort()
 
-  const filtered = principal || keyID || client || model || provider
+  const filtered = principal || keyID || client || model || provider || app || outcome
   function clearFilters() {
     setPrincipal('')
     setKeyID('')
     setClient('')
     setModel('')
     setProvider('')
+    setApp('')
+    setOutcome('')
     setPage(0)
+    setOpen(null)
   }
 
   const total = requests.data?.total ?? 0
@@ -221,7 +380,7 @@ export function Requests() {
         <div className="flex flex-col gap-1.5">
           <CardTitle className="font-serif">Request explorer</CardTitle>
           <CardDescription>
-            Metadata only; content is never stored. Times are UTC.
+            Metadata only; content is never stored. Click a row for details.
           </CardDescription>
         </div>
         <Button
@@ -287,6 +446,13 @@ export function Requests() {
             allLabel="All clients"
           />
           <FilterSelect
+            label="App"
+            value={app}
+            onChange={narrow(setApp)}
+            options={appOptions}
+            allLabel="All apps"
+          />
+          <FilterSelect
             label="Model"
             value={model}
             onChange={narrow(setModel)}
@@ -299,6 +465,13 @@ export function Requests() {
             onChange={narrow(setProvider)}
             options={facets.data?.providers ?? []}
             allLabel="All providers"
+          />
+          <FilterSelect
+            label="Outcome"
+            value={outcome}
+            onChange={narrow(setOutcome)}
+            options={OUTCOME_OPTIONS}
+            allLabel="All outcomes"
           />
           {filtered && (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
@@ -316,16 +489,13 @@ export function Requests() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-6" />
                   <TableHead>Time</TableHead>
                   <TableHead>User</TableHead>
+                  <TableHead>App</TableHead>
                   <TableHead>Model</TableHead>
-                  <TableHead>Endpoint</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Tags</TableHead>
-                  <TableHead>Outcome</TableHead>
-                  <TableHead className="text-right">Input</TableHead>
-                  <TableHead className="text-right">Cached</TableHead>
-                  <TableHead className="text-right">Output</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Tokens</TableHead>
                   <TableHead className="text-right">Cost</TableHead>
                   <TableHead className="text-right">Duration</TableHead>
                 </TableRow>
@@ -333,7 +503,7 @@ export function Requests() {
               <TableBody>
                 {shown === 0 && (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-muted-foreground">
+                    <TableCell colSpan={9} className="text-muted-foreground">
                       {filtered || since
                         ? 'No requests match these filters.'
                         : 'No requests recorded yet.'}
@@ -341,56 +511,91 @@ export function Requests() {
                   </TableRow>
                 )}
                 {requests.data?.requests.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="whitespace-nowrap text-xs">
-                      {formatDate(r.ts)}
-                    </TableCell>
-                    <TableCell>
-                      <UserCell row={r} />
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">{r.model}</TableCell>
-                    <TableCell>{r.endpoint}</TableCell>
-                    <TableCell className="font-mono text-xs" title={r.client || undefined}>
-                      {r.client ? (
-                        clientFamily(r.client)
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {r.tags ? (
-                        <span className="flex flex-wrap gap-1">
-                          {tagPairs(r.tags).map((pair) => (
-                            <Badge key={pair} variant="tag" size="sm" className="font-mono">
-                              {pair}
-                            </Badge>
-                          ))}
+                  <Fragment key={r.id}>
+                    <TableRow
+                      className="cursor-pointer"
+                      onClick={() => setOpen(open === r.id ? null : r.id)}
+                    >
+                      <TableCell className="pr-0">
+                        <button
+                          type="button"
+                          aria-label={open === r.id ? 'Hide details' : 'Show details'}
+                          aria-expanded={open === r.id}
+                          className="flex cursor-pointer items-center rounded-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {open === r.id ? (
+                            <ChevronDown className="size-3.5" />
+                          ) : (
+                            <ChevronRight className="size-3.5" />
+                          )}
+                        </button>
+                      </TableCell>
+                      <TableCell
+                        className="whitespace-nowrap text-xs"
+                        title={formatDate(r.ts)}
+                      >
+                        {shortTime(r.ts)}
+                      </TableCell>
+                      <TableCell>
+                        <UserCell row={r} />
+                      </TableCell>
+                      <TableCell>
+                        <AppCell row={r} />
+                      </TableCell>
+                      <TableCell
+                        className="max-w-44 truncate font-mono text-xs"
+                        title={r.model || undefined}
+                      >
+                        {r.model || <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell>
+                        <span className="flex items-center gap-1.5">
+                          <OutcomeBadge row={r} />
+                          {r.streamed && (
+                            <span title="streamed">
+                              <Zap className="size-3 text-muted-foreground" aria-label="streamed" />
+                            </span>
+                          )}
                         </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <OutcomeBadge row={r} />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatTokens(r.units['input_tokens'])}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatTokens(r.units['cached_input_tokens'])}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatTokens(r.units['output_tokens'])}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {r.cost === null ? (
-                        <span className="text-muted-foreground">unpriced</span>
-                      ) : (
-                        formatCost(r.cost)
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">{r.duration_ms} ms</TableCell>
-                  </TableRow>
+                      </TableCell>
+                      <TableCell
+                        className="text-right"
+                        title={
+                          r.units['input_tokens'] || r.units['output_tokens']
+                            ? `${formatTokens(r.units['input_tokens']) || 0} in · ` +
+                              `${formatTokens(r.units['output_tokens']) || 0} out` +
+                              (r.units['cached_input_tokens']
+                                ? ` · ${formatTokens(r.units['cached_input_tokens'])} cached`
+                                : '')
+                            : undefined
+                        }
+                      >
+                        <TokensCell row={r} />
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {r.cost !== null ? (
+                          formatCost(r.cost)
+                        ) : r.unpriced ? (
+                          <span className="text-muted-foreground">unpriced</span>
+                        ) : (
+                          // Nothing was consumed (a failure with no usage):
+                          // there is no cost to be missing.
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatDuration(r.duration_ms)}
+                      </TableCell>
+                    </TableRow>
+                    {open === r.id && (
+                      <TableRow className="bg-muted/30 hover:bg-muted/30">
+                        <TableCell />
+                        <TableCell colSpan={8}>
+                          <RowDetails row={r} />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>
@@ -427,7 +632,10 @@ export function Requests() {
                   size="icon-sm"
                   aria-label="Previous page"
                   disabled={page === 0}
-                  onClick={() => setPage(page - 1)}
+                  onClick={() => {
+                    setPage(page - 1)
+                    setOpen(null)
+                  }}
                 >
                   <ChevronLeft />
                 </Button>
@@ -436,7 +644,10 @@ export function Requests() {
                   size="icon-sm"
                   aria-label="Next page"
                   disabled={page + 1 >= pages}
-                  onClick={() => setPage(page + 1)}
+                  onClick={() => {
+                    setPage(page + 1)
+                    setOpen(null)
+                  }}
                 >
                   <ChevronRight />
                 </Button>

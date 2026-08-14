@@ -193,6 +193,10 @@ export interface RequestRow {
   key_label: string
   key_suffix: string
   outcome: string
+  // error_kind classifies a failure: the transport class on unreachable, the
+  // upstream's error code token on upstream_error. Empty on ok rows and on
+  // rows recorded before the proxy captured it.
+  error_kind: string
   status_code: number | null
   streamed: boolean
   cancelled: boolean
@@ -225,6 +229,54 @@ export interface RequestFacets {
   clients: string[]
   tags: string[]
   keys: FacetKey[]
+}
+
+// One time bucket of /stats/errors: request counts split by outcome.
+export interface ErrorBucket {
+  start: string
+  requests: number
+  ok: number
+  upstream_error: number
+  unreachable: number
+  cancelled: number
+}
+
+// One cell of the /stats/errors breakdown: the window grouped by every
+// dimension a failure can be blamed on. Rows with outcome ok are included so
+// error rates have their denominator. bands counts the cell's requests by
+// time-to-outcome: <1s, 1-5s, 5-15s, 15-30s, 30-60s, 60-120s, >=120s.
+export interface ErrorCell {
+  provider: string
+  model: string
+  endpoint: string
+  client: string
+  tags: string
+  outcome: string
+  error_kind: string
+  status_code: number | null
+  requests: number
+  avg_ms: number
+  last_seen: string
+  bands: number[]
+}
+
+export interface ErrorsResponse {
+  bucket: string
+  series: ErrorBucket[]
+  breakdown: ErrorCell[]
+}
+
+// formatDuration humanizes a request duration: milliseconds under a second,
+// one decimal of seconds under a minute, minutes and seconds past that.
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  // Round to whole seconds first, then split: rounding the remainder alone
+  // can carry to 60 and print "1m 60s".
+  const total = Math.round(ms / 1000)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}m ${String(s).padStart(2, '0')}s`
 }
 
 export function formatCost(cost: number | null): string {
