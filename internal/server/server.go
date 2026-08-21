@@ -257,7 +257,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /auth/callback", s.handleAuthCallback)
 	mux.HandleFunc("GET /auth/logout", s.handleAuthLogout)
 
-	mux.Handle("GET /v1/models", s.withAuth(s.handleListModels))
+	// The model list is public: it only exposes curated aliases and provider
+	// names, so clients can discover models before minting a key.
+	mux.HandleFunc("GET /v1/models", s.handleListModels)
 	mux.Handle("POST /v1/chat/completions", s.withAuth(s.handleChatCompletions))
 	mux.Handle("POST /v1/completions", s.withAuth(s.handleCompletions))
 	mux.Handle("POST /v1/embeddings", s.withAuth(s.handleEmbeddings))
@@ -266,7 +268,7 @@ func (s *Server) Handler() http.Handler {
 	// so clients configured with a bare base URL do not break. /models is also
 	// a page of the SPA, so a browser reload there (Accept: text/html) gets
 	// the app back; only /v1/models is unconditionally JSON.
-	mux.Handle("GET /models", uiOrAPI(ui, s.withAuth(s.handleListModels)))
+	mux.Handle("GET /models", uiOrAPI(ui, http.HandlerFunc(s.handleListModels)))
 	mux.Handle("POST /chat/completions", s.withAuth(s.handleChatCompletions))
 	mux.Handle("POST /completions", s.withAuth(s.handleCompletions))
 	mux.Handle("POST /embeddings", s.withAuth(s.handleEmbeddings))

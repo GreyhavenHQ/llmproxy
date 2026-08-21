@@ -20,7 +20,7 @@ import (
 // usage arrives in the final SSE chunk. Message content (vision image parts,
 // tool calls, everything else) is kept as raw bytes and never inspected.
 
-func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request, auth *Auth) {
+func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	endpoint := r.URL.Query().Get("endpoint")
 	if endpoint != "" && !catalog.IsCapability(endpoint) {
 		writeProxyError(w, apierr.Newf(400, "invalid_endpoint",

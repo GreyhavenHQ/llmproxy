@@ -130,7 +130,7 @@ func TestServicePrincipalsAndAdminKeys(t *testing.T) {
 	minted := decode(t, body)
 	serviceKey := minted["key"].(string)
 
-	resp, _ = e.request(t, "GET", "/v1/models", serviceKey, nil)
+	resp, _ = e.request(t, "GET", "/my/keys", serviceKey, nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("service key rejected: %d", resp.StatusCode)
 	}
@@ -139,7 +139,7 @@ func TestServicePrincipalsAndAdminKeys(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("delete service key: %d", resp.StatusCode)
 	}
-	resp, body = e.request(t, "GET", "/v1/models", serviceKey, nil)
+	resp, body = e.request(t, "GET", "/my/keys", serviceKey, nil)
 	if resp.StatusCode != 401 || errorCode(t, body) != "invalid_api_key" {
 		t.Fatalf("want 401 invalid_api_key, got %d %s", resp.StatusCode, body)
 	}

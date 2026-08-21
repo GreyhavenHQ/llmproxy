@@ -251,7 +251,7 @@ func TestTransparentTokenBoundaries(t *testing.T) {
 	}
 
 	// A relay token is not an API key.
-	resp2, data2 := e.request(t, "GET", "/v1/models", e.relayToken, nil)
+	resp2, data2 := e.request(t, "GET", "/my/keys", e.relayToken, nil)
 	if resp2.StatusCode != 401 || errorCode(t, data2) != "invalid_api_key" {
 		t.Fatalf("relay token accepted as API key: %d %s", resp2.StatusCode, data2)
 	}

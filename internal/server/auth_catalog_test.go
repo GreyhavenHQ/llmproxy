@@ -9,7 +9,7 @@ import (
 func TestAuthErrors(t *testing.T) {
 	e := newEnv(t)
 
-	resp, body := e.request(t, "GET", "/v1/models", "", nil)
+	resp, body := e.request(t, "GET", "/my/keys", "", nil)
 	if resp.StatusCode != 401 || errorCode(t, body) != "missing_api_key" {
 		t.Fatalf("want 401 missing_api_key, got %d %s", resp.StatusCode, body)
 	}
@@ -17,13 +17,19 @@ func TestAuthErrors(t *testing.T) {
 		t.Fatal("proxy errors must be marked source=proxy")
 	}
 
-	resp, body = e.request(t, "GET", "/v1/models", "lp_not_a_real_key", nil)
+	resp, body = e.request(t, "GET", "/my/keys", "lp_not_a_real_key", nil)
 	if resp.StatusCode != 401 || errorCode(t, body) != "invalid_api_key" {
 		t.Fatalf("want 401 invalid_api_key, got %d %s", resp.StatusCode, body)
 	}
 
+	// The model list is public: no key required, JSON either way.
+	resp, body = e.request(t, "GET", "/v1/models", "", nil)
+	if resp.StatusCode != 200 || !strings.Contains(string(body), `"object":"list"`) {
+		t.Fatalf("/v1/models must be public: %d %s", resp.StatusCode, body)
+	}
+
 	// x-api-key header also works.
-	req, _ := http.NewRequest("GET", e.proxy.URL+"/v1/models", nil)
+	req, _ := http.NewRequest("GET", e.proxy.URL+"/my/keys", nil)
 	req.Header.Set("x-api-key", e.memberKey)
 	xresp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -58,7 +64,7 @@ func TestSelfServiceKeyLifecycle(t *testing.T) {
 	}
 
 	// The new key authenticates.
-	resp, _ = e.request(t, "GET", "/v1/models", newKey, nil)
+	resp, _ = e.request(t, "GET", "/my/keys", newKey, nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("new key rejected: %d", resp.StatusCode)
 	}
@@ -68,7 +74,7 @@ func TestSelfServiceKeyLifecycle(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("delete: %d %s", resp.StatusCode, body)
 	}
-	resp, body = e.request(t, "GET", "/v1/models", newKey, nil)
+	resp, body = e.request(t, "GET", "/my/keys", newKey, nil)
 	if resp.StatusCode != 401 || errorCode(t, body) != "invalid_api_key" {
 		t.Fatalf("want 401 invalid_api_key, got %d %s", resp.StatusCode, body)
 	}

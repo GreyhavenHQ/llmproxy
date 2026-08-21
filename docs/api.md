@@ -11,7 +11,7 @@ The full machine-readable spec is in [openapi.yaml](openapi.yaml).
 |---|---|---|
 | `POST /v1/chat/completions` | **Supported** | Unary JSON and SSE streaming. Vision content parts, tool/function calls, response_format, logprobs etc. pass through untouched. Capability `chat` (+ `chat_stream` for streaming). |
 | `POST /v1/completions` | **Supported** | Legacy text completions, unary and streamed. Capability `completions`. |
-| `GET /v1/models` | **Supported** | Aliases on enabled providers; `?endpoint=chat\|embeddings\|...` filters by capability. |
+| `GET /v1/models` | **Supported** | Aliases on enabled providers; `?endpoint=chat\|embeddings\|...` filters by capability. Public, no API key required. |
 | `GET /v1/models/{id}` | Not yet | Trivial to add; nothing has needed it. |
 | `POST /v1/embeddings` | **Supported** | Unary passthrough. Capability `embeddings`. Array `input` is capped at `LLMPROXY_MAX_EMBEDDING_BATCH` items (default 2048); larger batches get 400 `embedding_batch_too_large`. |
 | `POST /v1/audio/transcriptions` | Planned | Streamed multipart, no disk spill; `audio_seconds` unit reserved. |
@@ -23,7 +23,9 @@ The full machine-readable spec is in [openapi.yaml](openapi.yaml).
 
 Auth: `Authorization: Bearer lp_...` or `x-api-key`. Unknown (including
 deleted) keys get 401 `invalid_api_key`; key management is
-database-authoritative, so deletion revokes a key immediately.
+database-authoritative, so deletion revokes a key immediately. `GET
+/v1/models` is the exception: it is served without authentication, since it
+only exposes curated aliases and provider names.
 
 Model names callers see are curated aliases, globally unique across all
 providers; there is no bare-upstream-name fallback and no multi-provider

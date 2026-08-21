@@ -1112,7 +1112,8 @@ paths:
       summary: List model aliases
       description: >
         OpenAI-shaped model list containing the aliases whose provider is
-        enabled, sorted by alias.
+        enabled, sorted by alias. Public; no API key required.
+      security: []
       parameters:
         - name: endpoint
           in: query
@@ -1133,8 +1134,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
 

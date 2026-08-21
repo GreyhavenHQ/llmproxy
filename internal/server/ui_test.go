@@ -45,9 +45,9 @@ func TestUIServedFromBinary(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(string(body), `id="root"`) {
 		t.Fatalf("SPA fallback: %d", resp.StatusCode)
 	}
-	resp, _ = e.request(t, "GET", "/v1/models", "", nil)
-	if resp.StatusCode != 401 {
-		t.Fatalf("API routes must not be shadowed by the SPA: %d", resp.StatusCode)
+	resp, body = e.request(t, "GET", "/v1/models", "", nil)
+	if resp.StatusCode != 200 || !strings.Contains(string(body), `"object":"list"`) {
+		t.Fatalf("API routes must not be shadowed by the SPA: %d %s", resp.StatusCode, body)
 	}
 }
 
@@ -81,16 +81,16 @@ func TestModelsPageSurvivesReload(t *testing.T) {
 		t.Fatalf("browser reload of /models should serve the SPA: %d %s", resp.StatusCode, page)
 	}
 
-	// An API client (no text/html in Accept) still reaches the alias: 401
-	// without a key, the model list with one.
+	// An API client (no text/html in Accept) still reaches the alias; the
+	// model list is public, so no key is needed.
 	resp, body := e.request(t, "GET", "/models", "", nil)
-	if resp.StatusCode != 401 || errorCode(t, body) != "missing_api_key" {
+	if resp.StatusCode != 200 || !strings.Contains(string(body), `"object":"list"`) {
 		t.Fatalf("API client on /models: %d %s", resp.StatusCode, body)
 	}
 
 	// /v1/models stays JSON even for a text/html Accept.
 	resp, page = browserGet("/v1/models")
-	if resp.StatusCode != 401 || strings.Contains(page, `id="root"`) {
+	if resp.StatusCode != 200 || strings.Contains(page, `id="root"`) {
 		t.Fatalf("/v1/models must never serve the SPA: %d %s", resp.StatusCode, page)
 	}
 }
