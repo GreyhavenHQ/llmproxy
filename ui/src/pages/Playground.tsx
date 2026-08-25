@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { useAsync } from '@/lib/useAsync'
 import { Badge } from '@/components/ui/badge'
+import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -618,10 +619,14 @@ function ReplyView({ model, reply, solo }: { model: string; reply: Reply; solo: 
       {reply.status === 'error' ? (
         <p className="text-sm text-destructive">{reply.error}</p>
       ) : (
-        <div className="text-sm whitespace-pre-wrap">
-          {reply.text || (reply.status === 'done' && (
-            <span className="text-muted-foreground">(empty response)</span>
-          ))}
+        <div className="text-sm">
+          {reply.text ? (
+            <Markdown text={reply.text} />
+          ) : (
+            reply.status === 'done' && (
+              <span className="text-muted-foreground">(empty response)</span>
+            )
+          )}
         </div>
       )}
     </div>

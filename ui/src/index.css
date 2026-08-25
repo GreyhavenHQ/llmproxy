@@ -110,3 +110,96 @@
     @apply bg-background text-foreground font-sans antialiased;
   }
 }
+
+/* Rendered model replies in the playground. Chat-scale typography: headings
+   barely larger than body text, tight vertical rhythm, subtle code blocks.
+   Sizes are relative so the block follows whatever font-size the caller sets;
+   colors are tokens, so dark mode needs no extra rules. Tailwind's preflight
+   strips list markers and heading sizes, hence the explicit values. */
+.chat-markdown {
+  line-height: 1.55;
+  overflow-wrap: break-word;
+}
+.chat-markdown > :first-child { margin-top: 0; }
+.chat-markdown > :last-child { margin-bottom: 0; }
+.chat-markdown p { margin: 0.5em 0; }
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1em 0 0.4em;
+  font-size: 1em;
+}
+.chat-markdown h1 { font-size: 1.15em; }
+.chat-markdown h2 { font-size: 1.08em; }
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+.chat-markdown ul { list-style: disc; }
+.chat-markdown ol { list-style: decimal; }
+.chat-markdown li { margin: 0.2em 0; }
+.chat-markdown li > ul,
+.chat-markdown li > ol { margin: 0.2em 0; }
+.chat-markdown li::marker { color: rgb(var(--muted-foreground)); }
+.chat-markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: rgb(var(--muted));
+  border: 1px solid rgb(var(--border) / 0.6);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+.chat-markdown pre {
+  background: rgb(var(--muted));
+  border: 1px solid rgb(var(--border) / 0.6);
+  border-radius: var(--radius);
+  padding: 0.6em 0.75em;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.chat-markdown pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+.chat-markdown blockquote {
+  margin: 0.6em 0;
+  padding: 0.1em 0 0.1em 0.9em;
+  border-left: 3px solid rgb(var(--border));
+  color: rgb(var(--muted-foreground));
+}
+.chat-markdown a {
+  color: rgb(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.chat-markdown table {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.95em;
+  display: block;
+  overflow-x: auto;
+}
+.chat-markdown th,
+.chat-markdown td {
+  border: 1px solid rgb(var(--border));
+  padding: 4px 10px;
+  text-align: left;
+}
+.chat-markdown th {
+  background: rgb(var(--muted));
+  font-weight: 600;
+}
+.chat-markdown hr {
+  border: none;
+  border-top: 1px solid rgb(var(--border));
+  margin: 1em 0;
+}
