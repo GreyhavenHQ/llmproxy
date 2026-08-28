@@ -21,7 +21,7 @@ llmproxy version
 ```
 
 ```
-llmproxy v1.1.0
+llmproxy v1.0.0
 ```
 
 Other platforms and checksum verification are in
@@ -35,7 +35,7 @@ llmproxy serve
 ```
 
 ```
-llmproxy v1.1.0 listening on http://127.0.0.1:4000
+llmproxy v1.0.0 listening on http://127.0.0.1:4000
 ```
 
 State appears in the working directory on first boot: `llmproxy.db`, the

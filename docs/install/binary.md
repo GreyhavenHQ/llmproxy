@@ -17,7 +17,7 @@ the [releases page](https://github.com/greyhavenhq/llmproxy/releases).
    ```
 
    ```
-   llmproxy v1.1.0
+   llmproxy v1.0.0
    ```
 
    Archive names follow `llmproxy_<Os>_<Arch>.tar.gz`, with `Os` in
@@ -92,7 +92,7 @@ role (name configurable via `LLMPROXY_LOCAL_ADMIN_NAME`).
    ```
 
    ```
-   llmproxy v1.1.0 listening on http://127.0.0.1:4000
+   llmproxy v1.0.0 listening on http://127.0.0.1:4000
    ```
 
 2. Read the generated password:

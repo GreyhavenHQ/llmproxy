@@ -7,11 +7,11 @@ Container Registry.
 
 ```bash
 docker run -p 127.0.0.1:4000:4000 -v llmproxy-data:/data \
-  -e LLMPROXY_ALLOW_NONLOCAL=1 ghcr.io/greyhavenhq/llmproxy:1.1.0
+  -e LLMPROXY_ALLOW_NONLOCAL=1 ghcr.io/greyhavenhq/llmproxy:1.0.0
 ```
 
 ```
-llmproxy v1.1.0 listening on http://0.0.0.0:4000
+llmproxy v1.0.0 listening on http://0.0.0.0:4000
 ```
 
 Two things this command does deliberately:
