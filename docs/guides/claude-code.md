@@ -1,11 +1,9 @@
-# Transparent Anthropic relay
+# Meter Claude Code
 
-The transparent relay forwards Anthropic API traffic unchanged while
-recording who consumed what. It exists for tools that already hold their own
-Anthropic credentials, Claude Code first among them: the proxy substitutes
-nothing, stores no upstream secrets, and rewrites no bytes. What it adds is
-per-user usage accounting on the same tables, dashboards and metrics as the
-rest of llmproxy.
+The transparent relay forwards Anthropic API traffic unchanged while recording
+who consumed what. It is for tools that already hold their own Anthropic
+credentials, Claude Code first among them: the proxy substitutes nothing,
+stores no upstream secrets and rewrites no bytes.
 
 ```
 Claude Code ── x-api-key / OAuth bearer ──▶ llmproxy ──▶ api.anthropic.com
@@ -14,69 +12,63 @@ Claude Code ── x-api-key / OAuth bearer ──▶ llmproxy ──▶ api.ant
                                                  duration, status; no content)
 ```
 
-This is distinct from the `/v1` ingress: there the proxy owns the provider
-credential and routes by model alias. Here the caller owns the credential and
-the proxy is a bystander that meters.
+This is not the `/v1` ingress. There the proxy owns the provider credential
+and routes by model name. Here the caller owns the credential and the proxy
+meters.
 
-## Relay tokens
-
-Requests go to:
-
-```
-/transparent/anthropic/<relay-token>/<anthropic-path>
-```
-
-The relay token attributes traffic to a principal. It has the same lifecycle
-mechanics as an API key: a random secret with an `lpt_` prefix, generated
-server-side, stored only as a keyed hash plus a 4-character display suffix,
-shown exactly once at creation, revoked by deletion. But it is deliberately
-not an API key. A relay token cannot authenticate against `/v1`, `/my` or
-`/admin`, and an API key is not accepted on the relay. Leaking one exposes
-usage attribution, not proxy access; the Anthropic credential itself never
-touches the proxy's storage at all.
-
-Mint one in the UI (Keys page) or directly:
+Examples assume:
 
 ```bash
-curl -s $P/my/relay-tokens -H "authorization: Bearer $KEY" \
-  -H 'content-type: application/json' -d '{"label": "claude-code laptop"}'
+P=https://proxy.example.com
+KEY=lp_...       # any key
+ADMIN=lp_...     # an admin key
 ```
 
-```json
-{
-  "id": "5e9c1af2d4b04c33a1f09e7d5b246810",
-  "token_suffix": "Xk2m",
-  "label": "claude-code laptop",
-  "created_at": "2026-08-03T10:02:11.482235Z",
-  "last_used_at": null,
-  "token": "lpt_Vb0mJq..."
-}
-```
+## Set it up
 
-`GET /my/relay-tokens` lists metadata only, `DELETE /my/relay-tokens/{id}`
-revokes immediately (the next relayed request gets 404
-`unknown_relay_token`). The token appears in the URL path, so the proxy's
-access log masks that segment (`/transparent/anthropic/***Xk2m/v1/messages`),
-and the prefix is stripped before forwarding, so nothing token-shaped reaches
-Anthropic.
+1. Mint a relay token, in the UI under Keys or directly:
 
-## Claude Code setup
+   ```bash
+   curl -s $P/my/relay-tokens -H "authorization: Bearer $KEY" \
+     -H 'content-type: application/json' -d '{"label": "claude-code laptop"}'
+   ```
 
-Claude Code sends all API traffic to `ANTHROPIC_BASE_URL` and appends the
-standard paths (`/v1/messages`, `/v1/messages/count_tokens`, ...). The UI
-shows this exact command when a token is created:
+   ```json
+   {
+     "id": "5e9c1af2d4b04c33a1f09e7d5b246810",
+     "token_suffix": "Xk2m",
+     "label": "claude-code laptop",
+     "created_at": "2026-08-03T10:02:11.482235Z",
+     "last_used_at": null,
+     "token": "lpt_Vb0mJq..."
+   }
+   ```
 
-```bash
-export ANTHROPIC_BASE_URL=https://proxy.example.com/transparent/anthropic/lpt_Vb0mJq...
-claude
-```
+   Copy `token` now. It is shown once.
 
-To make it permanent, pick one:
+2. Point Claude Code at the relay:
 
-* **Shell profile**: append the `export` line to `~/.zshrc` / `~/.bashrc`.
-  Everything on that machine that honours `ANTHROPIC_BASE_URL` goes through
-  the relay.
-* **Claude Code settings**: scope it to Claude Code only, in
+   ```bash
+   export ANTHROPIC_BASE_URL=https://proxy.example.com/transparent/anthropic/lpt_Vb0mJq...
+   claude
+   ```
+
+   The UI shows this exact command when the token is created.
+
+3. Run a prompt, then check the Usage tab. The request appears with provider
+   `transparent:anthropic` and client `claude-cli/<version>`.
+
+Your Anthropic credential is unchanged by all of this: Claude Code keeps
+sending its own, and the proxy forwards it untouched.
+
+## Make it permanent
+
+Pick one:
+
+- **Shell profile.** Append the `export` line to `~/.zshrc` or `~/.bashrc`.
+  Everything on that machine honouring `ANTHROPIC_BASE_URL` goes through the
+  relay.
+- **Claude Code settings**, to scope it to Claude Code only, in
   `~/.claude/settings.json`:
 
   ```json
@@ -86,67 +78,58 @@ To make it permanent, pick one:
     }
   }
   ```
-* **Alias**: proxy Claude Code while other Anthropic tooling stays direct:
+
+- **Alias**, to relay Claude Code while other Anthropic tooling stays direct:
 
   ```bash
   alias claude='ANTHROPIC_BASE_URL=https://proxy.example.com/transparent/anthropic/lpt_Vb0mJq... claude'
   ```
 
 Both authentication styles work, because credentials pass through
-byte-for-byte:
+byte-for-byte: an `x-api-key` is forwarded as received, and a Claude
+subscription's `Authorization: Bearer` plus `anthropic-beta` OAuth header are
+too. Token refresh happens against claude.ai directly and never crosses the
+relay.
 
-* **API key**: `x-api-key` forwarded as received.
-* **Claude subscription (OAuth)**: `Authorization: Bearer` plus the
-  `anthropic-beta` OAuth header forwarded as received. Token refresh happens
-  against claude.ai directly and never crosses the relay.
+Any other Anthropic SDK or tool honouring a base URL works the same way.
 
-Any other Anthropic SDK or tool that honours a base URL works the same way.
+## Relay tokens are not API keys
 
-## What the relay does and does not do
+A relay token has the same lifecycle mechanics as an API key: `lpt_` prefix,
+generated server-side, stored as a keyed hash plus a 4-character display
+suffix, shown once, revoked by deletion.
 
-Forwarded verbatim: method, path suffix, query string, request body (streamed
-unbuffered, no size cap, no field rewrites), response body (SSE flushed
-chunk-by-chunk), and headers in both directions apart from hop-by-hop
-headers, `Cookie` (proxy-local browser state), `Accept-Encoding` (dropped
-so the response arrives unencoded and usage stays readable; clients that
-asked for gzip still get a correct identity response) and `x-llmproxy-tags`
-(addressed to the proxy: read for accounting, then stripped before
-forwarding). Anthropic's
-`request-id` and rate-limit headers come back untouched. Client disconnects
-cancel the upstream request.
+It is deliberately a different credential. A relay token cannot authenticate
+against `/v1`, `/my` or `/admin`, and an API key is not accepted on the relay.
+Leaking one exposes usage attribution, not proxy access.
 
-Every method on every sub-path relays. Usage quantities are extracted where a
-`usage` object exists (`/v1/messages`, unary and streamed); other endpoints
-(`count_tokens`, `models`, future additions) still produce a metadata-only
-usage event, so the request log stays complete. The exception is HEAD and
-OPTIONS: they relay but are never recorded. They are connectivity probes
-(Claude Code sends one per session start, which Anthropic's root answers
-with a 404), carry nothing to meter, and would only fill the request log
-with phantom failures.
+```bash
+curl -s $P/my/relay-tokens -H "authorization: Bearer $KEY"                 # metadata only
+curl -s -X DELETE $P/my/relay-tokens/<id> -H "authorization: Bearer $KEY"  # revoke
+```
 
-The proxy never buffers a whole streamed body and persists no request or
-response content anywhere, same guarantee as the rest of llmproxy.
+Revocation is immediate: the next relayed request gets 404
+`unknown_relay_token`.
 
-## Accounting
+The token sits in the URL path, so the access log masks that segment
+(`/transparent/anthropic/***Xk2m/v1/messages`), and the prefix is stripped
+before forwarding, so nothing token-shaped reaches Anthropic.
 
-Each relayed request writes one `usage_event`:
+## What the relay records
 
-* `provider` is the sentinel `transparent:anthropic`; there is no provider
-  row and nothing to configure in the catalog.
-* `model` is taken from the response (`message_start` on streams, the
-  top-level `model` field on unary bodies), never parsed out of the request.
-* `endpoint` is the relayed path suffix (`v1/messages`,
-  `v1/messages/count_tokens`, ...).
-* `client` is the caller's `User-Agent` header, truncated to 256 characters
-  (Claude Code sends `claude-cli/<version> ...`), so different tools behind
-  the same token stay distinguishable. Header metadata only, like everything
-  else here.
-* `tags` is the caller's `x-llmproxy-tags` header, normalised the same way as
-  on `/v1`, so relay traffic shows up in the Usage tab's Apps subtab too. See
-  [keys-and-usage.md](keys-and-usage.md#application-tags).
-* Outcome, status code, streamed/cancelled flags and duration behave exactly
-  as on `/v1`; a mid-stream client disconnect records the partial usage
-  reported so far, flagged `cancelled`.
+One `usage_event` per relayed request:
+
+| Field | Value |
+|---|---|
+| `provider` | The sentinel `transparent:anthropic`. There is no provider row and nothing to configure in the catalog |
+| `model` | Taken from the response (`message_start` on streams, the top-level `model` on unary bodies), never parsed out of the request |
+| `endpoint` | The relayed path suffix: `v1/messages`, `v1/messages/count_tokens`, ... |
+| `client` | The caller's `User-Agent`, truncated to 256 characters, so different tools behind one token stay distinguishable |
+| `tags` | The caller's `x-llmproxy-tags` header, normalised as on `/v1`. See [usage.md](usage.md#tag-requests-by-application) |
+
+Outcome, status code, streamed and cancelled flags and duration behave exactly
+as on `/v1`. A mid-stream disconnect records the partial usage reported so
+far, flagged `cancelled`.
 
 Units map from Anthropic's usage object:
 
@@ -158,26 +141,65 @@ Units map from Anthropic's usage object:
 | `cache_creation_input_tokens` | `cache_creation_tokens` (recorded when non-zero) |
 
 Stored quantities are raw as Anthropic reported them, so each unit prices at
-its own rate. The usage aggregates normalise `input_tokens` to the
-non-cached input at read time: the relay's `cache_creation_tokens` (fresh
-input billed at a premium rate) fold in, cache reads stay their own unit,
-and the OpenAI shape's cached subset is subtracted out; see
-[keys-and-usage.md](keys-and-usage.md#usage-model).
+its own rate.
 
-Pricing uses the normal feed keyed on the model name as Anthropic reports it
-(e.g. `claude-opus-5`); see [keys-and-usage.md](keys-and-usage.md#pricing).
-Unpriced units are flagged, never counted as free.
+Endpoints without a `usage` object (`count_tokens`, `models`) still produce a
+metadata-only event, so the request log stays complete. HEAD and OPTIONS
+relay but are never recorded: they are connectivity probes and would only fill
+the log with phantom failures.
 
-Relay traffic appears everywhere ordinary traffic does: `/my/usage`,
-`/my/usage/series`, the admin summaries, the request log and `/metrics`
+Relay traffic appears everywhere ordinary traffic does: `/my/usage`, the
+series endpoints, the admin summaries, the request log and `/metrics`
 (labelled `provider="transparent:anthropic"`).
+
+## Price relayed models
+
+Use the normal pricing feed, keyed on the model name as Anthropic reports it:
+
+```bash
+curl -s $P/admin/v1/pricing -H "authorization: Bearer $ADMIN" \
+  -H 'content-type: application/json' -d '{
+    "version": "2026-08",
+    "entries": [
+      {"model": "claude-opus-5", "unit": "input_tokens", "price_per_million": 5.0},
+      {"model": "claude-opus-5", "unit": "output_tokens", "price_per_million": 25.0}
+    ]
+  }'
+```
+
+Unpriced units are flagged, never counted as free. See
+[pricing.md](pricing.md).
+
+## What passes through
+
+Forwarded verbatim: method, path suffix, query string, request body (streamed
+unbuffered, no size cap, no field rewrites), response body (SSE flushed
+chunk by chunk), and headers in both directions. Anthropic's `request-id` and
+rate-limit headers come back untouched. Client disconnects cancel the upstream
+request.
+
+Four headers are the exception:
+
+| Header | Why |
+|---|---|
+| Hop-by-hop headers | Not forwardable by definition |
+| `Cookie` | Proxy-local browser state |
+| `Accept-Encoding` | Dropped so the response arrives unencoded and usage stays readable. Clients that asked for gzip still get a correct identity response |
+| `x-llmproxy-tags` | Addressed to the proxy: read for accounting, then stripped |
+
+The proxy never buffers a whole streamed body and persists no request or
+response content, same guarantee as the rest of llmproxy.
 
 ## Configuration
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `LLMPROXY_TRANSPARENT_ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Relay target. The relay only ever connects here, so it is not an open proxy. Empty disables the relay (404 `transparent_relay_disabled`). |
+| `LLMPROXY_TRANSPARENT_ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Relay target. The relay only ever connects here, so it is not an open proxy. Empty disables the relay (404 `transparent_relay_disabled`) |
 
-The upstream connection allows up to 10 minutes before response headers
-(long non-streaming requests think for a while) and never bounds a streaming
-response; the client hanging up is what ends a relay.
+The upstream connection allows up to 10 minutes before response headers and
+never bounds a streaming response; the client hanging up is what ends a relay.
+
+## Where next
+
+- [usage.md](usage.md) to read the resulting accounting.
+- [pricing.md](pricing.md) to attach prices.
