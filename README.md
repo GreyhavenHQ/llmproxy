@@ -4,7 +4,15 @@ A self-hosted, OpenAI-compatible LLM proxy: one static Go binary with an embedde
 
 **No prompt, completion or other request/response content is ever persisted.** The database schema has no column that could hold a body, and tests enforce it.
 
-Apache 2.0 licensed.
+## Screenshots
+
+|  |  |  |
+|:--:|:--:|:--:|
+| <img src="https://github.com/user-attachments/assets/a49e1562-fbb2-4521-b053-b2dd4b1ce8dc" width="400" /> | <img src="https://github.com/user-attachments/assets/7f825ca6-f909-4393-8144-16a4fc5c51db" width="400" /> | <img src="https://github.com/user-attachments/assets/dc5a1bb3-4350-4ee5-8f84-2f9b2ed8d7bc" width="400" /> |
+| *Global usage* | *Models list* | *Playground* |
+| <img src="https://github.com/user-attachments/assets/0c1ddff3-7154-425c-8f62-251d91114885" width="400" /> | <img src="https://github.com/user-attachments/assets/a2374cb8-672b-4d6f-9947-6333c43e3954" width="400" /> | <img src="https://github.com/user-attachments/assets/bec51582-1ee2-446b-b45f-2d98debf9b08" width="400" /> |
+| *Request list* | *Error dashboard* | *Provider/model binding* |
+
 
 ## Features
 
