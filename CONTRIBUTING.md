@@ -139,5 +139,5 @@ To check a `.goreleaser.yaml` change without publishing anything:
 goreleaser release --snapshot --clean
 ```
 
-`CHANGELOG.md` keeps the curated 1.0.0 entry as history. Everything after it
-lives on the releases page.
+`CHANGELOG.md` carries a curated entry for 1.0.0. Everything after it lives on
+the releases page.

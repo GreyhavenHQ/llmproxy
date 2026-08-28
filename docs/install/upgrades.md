@@ -60,7 +60,7 @@ come back up.
 ## Version pinning
 
 Pin the exact version in production. For binaries, install a specific release
-rather than `latest`. For containers, use `:1.1.0` rather than `:latest` or
+rather than `latest`. For containers, use `:1.0.0` rather than `:latest` or
 `:1`, both of which move under you.
 
 ## Where next
