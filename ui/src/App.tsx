@@ -92,7 +92,7 @@ const ADMIN_SUBS = ['providers', 'models', 'users', 'services', 'all-keys']
 
 // The Usage tab has its own second segment (/usage/apps, /usage/errors),
 // kept in a separate field so the admin sub-nav is untouched by it.
-const USAGE_SUBS = ['overview', 'apps', 'errors']
+const USAGE_SUBS = ['overview', 'apps', 'models', 'errors']
 
 interface Nav {
   tab: string

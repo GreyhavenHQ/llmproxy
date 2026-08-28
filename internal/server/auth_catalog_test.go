@@ -120,6 +120,70 @@ func TestModelListFiltering(t *testing.T) {
 	}
 }
 
+// The public model list carries the curated metadata a caller needs to pick a
+// model: what it can do, and whether the name is an alias for another one.
+func TestModelListMetadata(t *testing.T) {
+	e := newEnv(t)
+
+	// vision is a declarative capability: admins set it, routing ignores it.
+	resp, body := e.request(t, "POST", "/admin/v1/models", e.adminKey, map[string]any{
+		"alias": "seer", "provider": "fake", "upstream_name": "m-alpha",
+		"capabilities": []string{"chat", "chat_stream", "vision"},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("bind a vision model: %d %s", resp.StatusCode, body)
+	}
+	resp, body = e.request(t, "POST", "/admin/v1/models", e.adminKey, map[string]any{
+		"alias": "smart", "target": "seer",
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("bind the alias: %d %s", resp.StatusCode, body)
+	}
+
+	_, body = e.request(t, "GET", "/v1/models", "", nil)
+	models := make(map[string]map[string]any)
+	for _, m := range decode(t, body)["data"].([]any) {
+		entry := m.(map[string]any)
+		models[entry["id"].(string)] = entry
+	}
+
+	seer := models["seer"]
+	if seer == nil {
+		t.Fatalf("model missing from the list: %s", body)
+	}
+	if caps := capabilityList(t, seer); !caps["chat"] || !caps["vision"] || caps["completions"] {
+		t.Fatalf("wrong capabilities: %v", caps)
+	}
+	if seer["alias_of"] != nil {
+		t.Fatalf("a direct model has no alias target: %v", seer["alias_of"])
+	}
+
+	// An alias reports its target and serves its target's capabilities.
+	smart := models["smart"]
+	if smart == nil {
+		t.Fatalf("alias missing from the list: %s", body)
+	}
+	if smart["alias_of"] != "seer" {
+		t.Fatalf("alias_of = %v, want seer", smart["alias_of"])
+	}
+	if caps := capabilityList(t, smart); !caps["vision"] {
+		t.Fatalf("alias did not inherit capabilities: %v", caps)
+	}
+}
+
+func capabilityList(t *testing.T, entry map[string]any) map[string]bool {
+	t.Helper()
+	raw, ok := entry["capabilities"].([]any)
+	if !ok {
+		t.Fatalf("capabilities missing on %v", entry["id"])
+	}
+	out := make(map[string]bool)
+	for _, c := range raw {
+		out[c.(string)] = true
+	}
+	return out
+}
+
 func TestCatalogRejections(t *testing.T) {
 	e := newEnv(t)
 	chat := func(model string) (*http.Response, []byte) {

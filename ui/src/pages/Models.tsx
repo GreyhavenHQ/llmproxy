@@ -45,7 +45,16 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Pencil, Trash2 } from 'lucide-react'
 
-const ALL_CAPABILITIES = ['chat', 'chat_stream', 'completions', 'embeddings']
+// vision is declarative: it tells callers the model reads images, and gates
+// nothing. The others gate the endpoints of the same name.
+const ALL_CAPABILITIES = [
+  'chat',
+  'chat_stream',
+  'completions',
+  'embeddings',
+  'transcription',
+  'vision',
+]
 
 // The units the proxy meters. Prices are per million units and belong to the
 // model: a unit left blank is unpriced, never zero.

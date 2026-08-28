@@ -41,14 +41,33 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		if t, err := time.Parse("2006-01-02T15:04:05.000000Z", b.CreatedAt); err == nil {
 			created = t.Unix()
 		}
+		// capabilities and alias_of are extensions to the OpenAI shape:
+		// curated catalog metadata, no credentials, ignored by clients that
+		// only read id.
+		var aliasOf any
+		if b.TargetAlias != "" {
+			aliasOf = b.TargetAlias
+		}
 		data = append(data, map[string]any{
-			"id":       b.Alias,
-			"object":   "model",
-			"created":  created,
-			"owned_by": b.ProviderName,
+			"id":           b.Alias,
+			"object":       "model",
+			"created":      created,
+			"owned_by":     b.ProviderName,
+			"capabilities": splitCapabilitySet(b.CapabilitySet),
+			"alias_of":     aliasOf,
 		})
 	}
 	writeJSON(w, 200, map[string]any{"object": "list", "data": data})
+}
+
+func splitCapabilitySet(set string) []string {
+	out := []string{}
+	for _, c := range strings.Split(set, ",") {
+		if c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func capabilitySetHas(set, cap string) bool {

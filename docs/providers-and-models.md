@@ -27,14 +27,15 @@ ambiguous and there is no fallback to bare upstream names. Each binding
 carries:
 
 - a **capability set**, admin-declared, a non-empty subset of `chat`,
-  `chat_stream`, `completions`, `embeddings`, `transcription`. Capabilities
-  are not probed or inferred; you declare what the deployment actually does.
-  A chat request needs `chat` (plus `chat_stream` if `stream: true`); a
-  request to an endpoint outside the set fails at the proxy with 400
-  `endpoint_not_supported` naming the supported set, instead of a confusing
-  upstream 404. `transcription` is reserved: the capability and the
+  `chat_stream`, `completions`, `embeddings`, `transcription`, `vision`.
+  Capabilities are not probed or inferred; you declare what the deployment
+  actually does. A chat request needs `chat` (plus `chat_stream` if
+  `stream: true`); a request to an endpoint outside the set fails at the proxy
+  with 400 `endpoint_not_supported` naming the supported set, instead of a
+  confusing upstream 404. `transcription` is reserved: the capability and the
   `audio_seconds` billing unit exist, but `/v1/audio/transcriptions` is not
-  served yet.
+  served yet. `vision` is declarative: it tells callers the model reads image
+  parts and gates nothing, since bodies pass through untouched.
 - an **origin**, `declared` or `discovered`, recording where the binding came
   from. Informational only.
 

@@ -412,7 +412,9 @@ curl -s "$P/stats/summary?since=2026-07-01&client=claude-cli" -H "authorization:
 This is what the UI draws: the Usage tab (an Overview subtab with tiles,
 per-period charts, the model share, the client breakdown and the by-user
 table, filterable by user, provider and client; an Apps subtab breaking
-the same window down by application tag; and an Errors subtab: failures over
+the same window down by application tag; a Models subtab listing every
+servable model with its capabilities, what it aliases and its usage over the
+window, sortable by name or by any usage column; and an Errors subtab: failures over
 time by class, the time-to-failure histogram, failure counts and rates by
 provider, app and model, the failure-kind share and an error-signatures
 table that deep-links into the explorer) and the Requests tab (the request

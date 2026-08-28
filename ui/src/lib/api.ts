@@ -180,6 +180,16 @@ export interface UsageBucket {
   units: Record<string, number>
 }
 
+// An entry of the public model list (GET /v1/models). capabilities and
+// alias_of are the proxy's additions to the OpenAI shape, and like Model they
+// are always resolved: an alias reports its target's capabilities.
+export interface CatalogModel {
+  id: string
+  owned_by: string
+  capabilities: string[]
+  alias_of: string | null
+}
+
 export interface DiscoveredModel {
   upstream_name: string
   bound_alias: string | null

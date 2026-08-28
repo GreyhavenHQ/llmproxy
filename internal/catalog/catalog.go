@@ -22,7 +22,10 @@ import (
 	"github.com/monadical/llmproxy/internal/store"
 )
 
-var Capabilities = []string{"chat", "chat_stream", "completions", "embeddings", "transcription"}
+// Capabilities is what a binding may declare. Every entry that is also an
+// Endpoint gates routing; "vision" is declarative only, describing what the
+// model accepts, and is never checked on the request path.
+var Capabilities = []string{"chat", "chat_stream", "completions", "embeddings", "transcription", "vision"}
 var Endpoints = []string{"chat", "completions", "embeddings", "transcription"}
 
 var DefaultPaths = map[string]string{

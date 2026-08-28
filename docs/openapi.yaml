@@ -254,6 +254,19 @@ components:
         owned_by:
           type: string
           description: Provider name.
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capability'
+          description: >
+            Resolved capability set: for an alias, the target's. An extension
+            to the OpenAI shape.
+        alias_of:
+          type: string
+          nullable: true
+          description: >
+            The model this name points at, `null` when it binds a provider
+            directly. An extension to the OpenAI shape.
 
     ModelList:
       type: object
@@ -734,7 +747,7 @@ components:
 
     Capability:
       type: string
-      enum: [chat, chat_stream, completions, embeddings, transcription]
+      enum: [chat, chat_stream, completions, embeddings, transcription, vision]
 
     ResolveResult:
       type: object

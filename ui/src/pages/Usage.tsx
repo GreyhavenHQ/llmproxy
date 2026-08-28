@@ -4,11 +4,13 @@
 import { UsageDashboard } from '@/components/UsageDashboard'
 import { AppsUsage } from '@/components/AppsUsage'
 import { ErrorsDashboard } from '@/components/ErrorsDashboard'
+import { ModelsCatalog } from '@/components/ModelsCatalog'
 import { cn } from '@/lib/utils'
 
 const SUBS = [
   { key: 'overview', label: 'Overview' },
   { key: 'apps', label: 'Apps' },
+  { key: 'models', label: 'Models' },
   { key: 'errors', label: 'Errors' },
 ]
 
@@ -50,6 +52,8 @@ export function Usage({
       <SubNav value={sub} onChange={onSubChange} />
       {sub === 'apps' ? (
         <AppsUsage />
+      ) : sub === 'models' ? (
+        <ModelsCatalog />
       ) : sub === 'errors' ? (
         <ErrorsDashboard />
       ) : (
