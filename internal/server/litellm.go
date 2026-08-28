@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/monadical/llmproxy/internal/apierr"
-	"github.com/monadical/llmproxy/internal/secrets"
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/apierr"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 // LiteLLM management-API compatibility, so existing registration tooling

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 // Story F2: a client abort cancels the upstream request and partial usage is

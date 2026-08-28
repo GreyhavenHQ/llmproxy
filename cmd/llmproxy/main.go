@@ -17,13 +17,35 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/config"
-	"github.com/monadical/llmproxy/internal/secrets"
-	"github.com/monadical/llmproxy/internal/server"
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/config"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/server"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
-const version = "1.0.0"
+// Stamped at build time with -ldflags "-X main.version=... -X main.gitCommit=...
+// -X main.buildTime=...". Release builds get the tag; a plain `go build` leaves
+// the defaults, which is why an unstamped binary honestly reports "dev".
+var (
+	version   = "dev"
+	gitCommit = ""
+	buildTime = ""
+)
+
+// versionString renders the stamped build metadata, omitting whatever was not
+// stamped: "dev", "v1.1.0 (abc1234)" or "v1.1.0 (abc1234, built <time>)".
+func versionString(version, gitCommit, buildTime string) string {
+	switch {
+	case gitCommit == "" && buildTime == "":
+		return version
+	case buildTime == "":
+		return fmt.Sprintf("%s (%s)", version, gitCommit)
+	case gitCommit == "":
+		return fmt.Sprintf("%s (built %s)", version, buildTime)
+	default:
+		return fmt.Sprintf("%s (%s, built %s)", version, gitCommit, buildTime)
+	}
+}
 
 var loopbackHosts = map[string]bool{"127.0.0.1": true, "::1": true, "localhost": true}
 
@@ -47,7 +69,7 @@ func main() {
 	case "principal":
 		err = cmdPrincipal(os.Args[2:])
 	case "version", "--version":
-		fmt.Println(version)
+		fmt.Println(versionString(version, gitCommit, buildTime))
 	default:
 		usage()
 		os.Exit(2)

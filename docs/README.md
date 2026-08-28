@@ -12,8 +12,8 @@ material for looking things up, and explanation for understanding the design.
 
 ## How-to guides
 
-- [installation.md](installation.md): build from source, state layout, first
-  key, systemd, upgrades.
+- [installation.md](installation.md): release binaries, build from source,
+  state layout, first key, systemd, upgrades.
 - [docker.md](docker.md): the image, docker compose, switching to Postgres, deploying on Coolify.
 - [sso.md](sso.md): OIDC login, sessions, group-based roles, an Authentik
   walkthrough.
@@ -39,3 +39,9 @@ material for looking things up, and explanation for understanding the design.
 - [architecture.md](architecture.md): scope and non-goals, the three endpoint
   families, and the design rules with their rationale, including the
   no-content-persistence guarantee.
+
+## Contributing
+
+- [CONTRIBUTING.md](../CONTRIBUTING.md): development setup, the commit
+  convention, the review expectations and how a release is cut.
+- [SECURITY.md](../SECURITY.md): how to report a vulnerability privately.

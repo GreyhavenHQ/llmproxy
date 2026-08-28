@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/monadical/llmproxy/internal/apierr"
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/apierr"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 // Shared statistics endpoints, open to every authenticated user: the proxy's

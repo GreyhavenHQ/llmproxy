@@ -13,7 +13,7 @@ func TestLiteLLMManagementCompat(t *testing.T) {
 
 	// POST /model/new, LiteLLM deployment shape (extra fields are ignored).
 	payload := map[string]any{
-		"model_name":         "monadical/zdr-kimi",
+		"model_name":         "acme/zdr-kimi",
 		"provider":           "openai",
 		"litellm_model_name": "moonshotai/kimi-k2",
 		"litellm_params": map[string]any{
@@ -31,7 +31,7 @@ func TestLiteLLMManagementCompat(t *testing.T) {
 	created := decode(t, body)
 	info, _ := created["model_info"].(map[string]any)
 	deploymentID, _ := info["id"].(string)
-	if created["model_name"] != "monadical/zdr-kimi" || deploymentID == "" {
+	if created["model_name"] != "acme/zdr-kimi" || deploymentID == "" {
 		t.Fatalf("/model/new view: %v", created)
 	}
 	if strings.Contains(string(body), upstreamKey) {
@@ -47,7 +47,7 @@ func TestLiteLLMManagementCompat(t *testing.T) {
 	// A different mapping under the same model_name is rejected (aliases are
 	// unique; llmproxy does not do LiteLLM-style multi-deployment balancing).
 	conflicting := map[string]any{
-		"model_name": "monadical/zdr-kimi",
+		"model_name": "acme/zdr-kimi",
 		"litellm_params": map[string]any{
 			"model":    "some-other-model",
 			"api_base": e.upstream.srv.URL + "/v1",
@@ -98,7 +98,7 @@ func TestLiteLLMManagementCompat(t *testing.T) {
 		dep, _ := d.(map[string]any)
 		params, _ := dep["litellm_params"].(map[string]any)
 		depInfo, _ := dep["model_info"].(map[string]any)
-		if dep["model_name"] == "monadical/zdr-kimi" && params["model"] == "moonshotai/kimi-k2" {
+		if dep["model_name"] == "acme/zdr-kimi" && params["model"] == "moonshotai/kimi-k2" {
 			if depInfo["id"] != deploymentID {
 				t.Fatalf("deployment id mismatch: %v vs %v", depInfo["id"], deploymentID)
 			}
@@ -112,7 +112,7 @@ func TestLiteLLMManagementCompat(t *testing.T) {
 	// The registered alias serves chat, including at the root path (LiteLLM
 	// serves the OpenAI routes without /v1 too).
 	resp, body = e.request(t, "POST", "/chat/completions", e.memberKey, map[string]any{
-		"model":    "monadical/zdr-kimi",
+		"model":    "acme/zdr-kimi",
 		"messages": []map[string]any{{"role": "user", "content": "hello"}},
 	})
 	if resp.StatusCode != 200 || !strings.Contains(string(body), "hello from the fake upstream") {
@@ -128,7 +128,7 @@ func TestLiteLLMManagementCompat(t *testing.T) {
 		t.Fatalf("/model/delete: %d %s", resp.StatusCode, body)
 	}
 	resp, _ = e.request(t, "POST", "/v1/chat/completions", e.memberKey, map[string]any{
-		"model":    "monadical/zdr-kimi",
+		"model":    "acme/zdr-kimi",
 		"messages": []map[string]any{{"role": "user", "content": "hi"}},
 	})
 	if resp.StatusCode != 404 {

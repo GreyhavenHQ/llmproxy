@@ -9,6 +9,8 @@
 
 services:
   llmproxy:
+    # Or drop the build and pull the published image instead:
+    #   image: ghcr.io/greyhavenhq/llmproxy:latest
     build: .
     ports:
       - "127.0.0.1:4000:4000"

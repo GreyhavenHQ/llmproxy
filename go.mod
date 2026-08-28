@@ -1,4 +1,4 @@
-module github.com/monadical/llmproxy
+module github.com/greyhavenhq/llmproxy
 
 go 1.26.1
 

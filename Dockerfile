@@ -2,12 +2,24 @@
 # in internal/server/uidist/ (committed, embedded via go:embed); the ui-drift CI
 # job rebuilds it and fails if that committed output is stale, so the image can
 # trust it without a node build stage of its own.
-FROM golang:1.26-alpine AS build
+#
+# The build stage always runs on the builder's native architecture and
+# cross-compiles to the target, so a multi-arch build never puts the Go
+# compiler under emulation. Only the tiny runtime stage below is emulated.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+ARG GIT_COMMIT=""
+ARG BUILD_TIME=""
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/llmproxy ./cmd/llmproxy
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -trimpath \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildTime=${BUILD_TIME}" \
+    -o /out/llmproxy ./cmd/llmproxy
 
 FROM alpine:3.21
 RUN adduser -D -u 1000 llmproxy && mkdir -p /data && chown llmproxy:llmproxy /data

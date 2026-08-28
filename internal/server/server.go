@@ -16,15 +16,15 @@ import (
 
 	"strings"
 
-	"github.com/monadical/llmproxy/internal/apierr"
-	"github.com/monadical/llmproxy/internal/catalog"
-	"github.com/monadical/llmproxy/internal/config"
-	"github.com/monadical/llmproxy/internal/metrics"
-	"github.com/monadical/llmproxy/internal/oidc"
-	"github.com/monadical/llmproxy/internal/pricing"
-	"github.com/monadical/llmproxy/internal/secrets"
-	"github.com/monadical/llmproxy/internal/store"
-	"github.com/monadical/llmproxy/internal/upstream"
+	"github.com/greyhavenhq/llmproxy/internal/apierr"
+	"github.com/greyhavenhq/llmproxy/internal/catalog"
+	"github.com/greyhavenhq/llmproxy/internal/config"
+	"github.com/greyhavenhq/llmproxy/internal/metrics"
+	"github.com/greyhavenhq/llmproxy/internal/oidc"
+	"github.com/greyhavenhq/llmproxy/internal/pricing"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/upstream"
 )
 
 type Server struct {

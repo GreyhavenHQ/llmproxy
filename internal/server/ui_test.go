@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 // The UI is a compiled React app embedded in the binary; these tests cover

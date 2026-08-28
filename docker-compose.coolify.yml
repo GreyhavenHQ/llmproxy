@@ -13,6 +13,8 @@
 
 services:
   llmproxy:
+    # Or drop the build and pull a pinned published image instead:
+    #   image: ghcr.io/greyhavenhq/llmproxy:1.1.0
     build: .
     depends_on:
       db:

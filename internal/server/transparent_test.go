@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 // relayRequest performs a call against the transparent relay with

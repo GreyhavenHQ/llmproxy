@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 func TestRegisterDiscoverBindInferUnregister(t *testing.T) {
@@ -261,9 +261,9 @@ func TestModelRenameAndAliasDefault(t *testing.T) {
 
 	// Rename it. The prices move with it, under one new feed version.
 	resp, body = e.request(t, "PATCH", "/admin/v1/models/m-alpha", e.adminKey,
-		map[string]any{"alias": "monadical/smart"})
+		map[string]any{"alias": "acme/smart"})
 	renamed := decode(t, body)
-	if resp.StatusCode != 200 || renamed["alias"] != "monadical/smart" ||
+	if resp.StatusCode != 200 || renamed["alias"] != "acme/smart" ||
 		renamed["pricing"].(map[string]any)["input_tokens"] != 2.0 {
 		t.Fatalf("rename lost the prices: %d %s", resp.StatusCode, body)
 	}
@@ -274,7 +274,7 @@ func TestModelRenameAndAliasDefault(t *testing.T) {
 
 	// The new name serves and the old one is gone.
 	resp, _ = e.request(t, "POST", "/v1/chat/completions", e.memberKey, map[string]any{
-		"model": "monadical/smart", "messages": []any{map[string]any{"role": "user", "content": "hi"}},
+		"model": "acme/smart", "messages": []any{map[string]any{"role": "user", "content": "hi"}},
 	})
 	if resp.StatusCode != 200 {
 		t.Fatalf("renamed alias does not serve: %d", resp.StatusCode)
@@ -287,7 +287,7 @@ func TestModelRenameAndAliasDefault(t *testing.T) {
 	}
 
 	// Renaming onto a name in use is rejected; aliases stay unique.
-	resp, _ = e.request(t, "PATCH", "/admin/v1/models/monadical%2Fsmart", e.adminKey,
+	resp, _ = e.request(t, "PATCH", "/admin/v1/models/acme%2Fsmart", e.adminKey,
 		map[string]any{"alias": "alpha"})
 	if resp.StatusCode != 409 {
 		t.Fatalf("rename onto a bound alias must 409, got %d", resp.StatusCode)
@@ -310,7 +310,7 @@ func TestModelAliasInheritsItsTarget(t *testing.T) {
 
 	// The alias carries nothing of its own but its name.
 	resp, body = e.request(t, "POST", "/admin/v1/models", e.adminKey, map[string]any{
-		"alias": "monadical/smart", "target": "z-ai/glm-5.2",
+		"alias": "acme/smart", "target": "z-ai/glm-5.2",
 	})
 	view := decode(t, body)
 	if resp.StatusCode != 201 || view["target"] != "z-ai/glm-5.2" ||
@@ -326,7 +326,7 @@ func TestModelAliasInheritsItsTarget(t *testing.T) {
 
 	// It serves, and the upstream sees the target's model name.
 	resp, body = e.request(t, "POST", "/v1/chat/completions", e.memberKey, map[string]any{
-		"model": "monadical/smart", "messages": []any{map[string]any{"role": "user", "content": "hi"}},
+		"model": "acme/smart", "messages": []any{map[string]any{"role": "user", "content": "hi"}},
 	})
 	if resp.StatusCode != 200 || resp.Header.Get("x-llmproxy-model") != "m-alpha" {
 		t.Fatalf("alias does not serve: %d %s", resp.StatusCode, body)
@@ -334,7 +334,7 @@ func TestModelAliasInheritsItsTarget(t *testing.T) {
 
 	// Usage is recorded against the name the caller used, costed through the
 	// target's prices.
-	ev := e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Alias == "monadical/smart" })
+	ev := e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Alias == "acme/smart" })
 	want := 7*1e-6 + 5*3e-6
 	if math.Abs(ev.Cost.Float64-want) > 1e-12 {
 		t.Fatalf("alias not costed through its target: %v (want %v)", ev.Cost.Float64, want)
@@ -346,7 +346,7 @@ func TestModelAliasInheritsItsTarget(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("retarget the real model: %d", resp.StatusCode)
 	}
-	moved := modelByAlias(t, e, "monadical/smart")
+	moved := modelByAlias(t, e, "acme/smart")
 	if moved["upstream_name"] != "m-embed" ||
 		len(moved["capabilities"].([]any)) != 1 {
 		t.Fatalf("alias did not follow its target: %v", moved)
@@ -354,14 +354,14 @@ func TestModelAliasInheritsItsTarget(t *testing.T) {
 
 	// One hop: an alias cannot point at an alias.
 	resp, body = e.request(t, "POST", "/admin/v1/models", e.adminKey, map[string]any{
-		"alias": "monadical/smarter", "target": "monadical/smart",
+		"alias": "acme/smarter", "target": "acme/smart",
 	})
 	if resp.StatusCode != 400 || errorCode(t, body) != "invalid_target" {
 		t.Fatalf("want 400 invalid_target for a two-hop alias, got %d %s", resp.StatusCode, body)
 	}
 
 	// Editing what an alias inherits is refused rather than silently ignored.
-	resp, body = e.request(t, "PATCH", "/admin/v1/models/monadical%2Fsmart", e.adminKey,
+	resp, body = e.request(t, "PATCH", "/admin/v1/models/acme%2Fsmart", e.adminKey,
 		map[string]any{"upstream_name": "m-alpha"})
 	if resp.StatusCode != 400 || errorCode(t, body) != "invalid_target" {
 		t.Fatalf("want 400 invalid_target editing an alias's route, got %d %s", resp.StatusCode, body)
@@ -376,12 +376,12 @@ func TestModelAliasInheritsItsTarget(t *testing.T) {
 	// Both names are servable and listed.
 	_, body = e.request(t, "GET", "/v1/models", e.memberKey, nil)
 	ids := modelIDs(t, body)
-	if !ids["monadical/smart"] || !ids["z-ai/glm-5.2"] {
+	if !ids["acme/smart"] || !ids["z-ai/glm-5.2"] {
 		t.Fatalf("alias missing from the model list: %s", body)
 	}
 
 	// Deleting the alias frees the target.
-	resp, _ = e.request(t, "DELETE", "/admin/v1/models/monadical%2Fsmart", e.adminKey, nil)
+	resp, _ = e.request(t, "DELETE", "/admin/v1/models/acme%2Fsmart", e.adminKey, nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("delete alias: %d", resp.StatusCode)
 	}

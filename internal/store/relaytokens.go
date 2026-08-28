@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/monadical/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
 )
 
 func (s *Store) CreateRelayToken(ctx context.Context, principalID, tokenHash, suffix, label string, audit *Audit) (*RelayToken, error) {

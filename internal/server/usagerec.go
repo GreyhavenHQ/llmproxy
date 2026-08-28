@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/catalog"
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/catalog"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 // clientMaxLen caps the stored User-Agent: enough to identify any real

@@ -1,8 +1,11 @@
 # Changelog
 
-All notable changes to llmproxy are documented in this file. The format is
-based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
-project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Release notes for 1.1.0 and later live on the
+[releases page](https://github.com/greyhavenhq/llmproxy/releases), generated
+from the commit history at tag time. This file keeps the curated 1.0.0 entry
+below as history.
+
+The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.0.0] - 2026-08-04
 

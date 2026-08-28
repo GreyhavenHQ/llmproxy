@@ -4,6 +4,31 @@ llmproxy is a single static Go binary with no CGO and a pure-Go SQLite driver.
 There is nothing else to install: no separate runtime, no external migration
 tool, no sidecar.
 
+## Install a release binary
+
+Every tag publishes archives for linux/amd64, linux/arm64 and darwin/arm64 on
+the [releases page](https://github.com/greyhavenhq/llmproxy/releases), each
+containing the binary, the README and the licence, plus a `checksums.txt`
+signed off by the release workflow.
+
+```bash
+curl -fsSL https://github.com/greyhavenhq/llmproxy/releases/latest/download/llmproxy_Linux_x86_64.tar.gz | tar xz
+sudo install -m 0755 llmproxy /usr/local/bin/llmproxy
+llmproxy version
+```
+
+The archive names follow `llmproxy_<Os>_<Arch>.tar.gz`, with `Os` in
+`Linux`/`Darwin` and `Arch` in `x86_64`/`arm64`. Verify a download against
+`checksums.txt`:
+
+```bash
+curl -fsSLO https://github.com/greyhavenhq/llmproxy/releases/latest/download/checksums.txt
+sha256sum -c --ignore-missing checksums.txt
+```
+
+For containers, use the published image instead; see
+[docker.md](docker.md).
+
 ## Build from source
 
 The module's `go.mod` pins the exact Go version, so any reasonably recent
@@ -14,7 +39,7 @@ needs no node toolchain; `just ui` rebuilds them from `ui/` when you change
 the frontend.
 
 ```bash
-git clone https://github.com/monadical/llmproxy
+git clone https://github.com/greyhavenhq/llmproxy
 cd llmproxy
 just build          # -> bin/llmproxy (static, roughly 14 MiB)
 ```
@@ -31,10 +56,10 @@ Cross-compile the same way, for example for a Linux server:
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o llmproxy ./cmd/llmproxy
 ```
 
-The binary has four subcommands: `serve`, `key create|list|delete`,
-`principal create` and `version`. The `key` and `principal` commands operate
-directly on the database, which is how you bootstrap before the HTTP API has
-any keys.
+The binary has five subcommands: `serve`, `key create|list|delete`,
+`relay-token create|list|delete`, `principal create` and `version`. The `key`,
+`relay-token` and `principal` commands operate directly on the database, which
+is how you bootstrap before the HTTP API has any keys.
 
 ## Where state lives
 
@@ -90,7 +115,7 @@ this, everything else can be done over the HTTP API with that key.
 Then run the server:
 
 ```bash
-bin/llmproxy serve       # llmproxy 1.0.0 listening on http://127.0.0.1:4000
+bin/llmproxy serve       # llmproxy v1.1.0 listening on http://127.0.0.1:4000
 ```
 
 ## The loopback guard
@@ -161,23 +186,31 @@ detached usage-accounting goroutines so no usage records are lost.
 
 ## Upgrades
 
-The schema is applied on every boot with idempotent `CREATE TABLE IF NOT
-EXISTS` / `CREATE INDEX IF NOT EXISTS` statements; there is no separate
-migration step. Upgrading is: stop the service, replace the binary, start the
-service. New tables and indexes introduced by a newer version are created
-automatically on the next boot.
+Upgrading is: stop the service, replace the binary, start the service. There
+is no separate migration step and no external migration tool.
 
-Two caveats worth knowing:
+On every boot the server applies the base schema with idempotent
+`CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` statements, which
+brings a fresh database fully up to date and creates any wholly-missing table
+on an existing one. It then runs the versioned migrations
+(`internal/store/migrate.go`) that carry existing databases forward. Each
+migration runs at most once per database: the change and its bookkeeping row
+in the `schema_migration` table commit in the same transaction, so a database
+is never left half-migrated. A migration that fails is a real startup error,
+not a warning: the server refuses to serve rather than run against a schema it
+cannot account for.
 
-- `IF NOT EXISTS` creates missing tables but does not alter existing ones.
-  Additive column changes are applied automatically at boot (`api_key.key_suffix`
-  arrived this way; keys minted before it list an empty display
-  suffix until recreated). Pre-1.0 development versions had a model `exposed`
-  flag that was later removed: every binding now serves as soon as it exists,
-  so a binding that was deliberately unexposed on an older database becomes
-  live after the upgrade; delete it if
-  that is not wanted. Take a database backup before upgrading regardless
-  (for SQLite, copy the `.db` file while the service is stopped, or use
-  `sqlite3 llmproxy.db ".backup ..."` while running).
+Practical consequences:
+
+- The applied history is queryable: `SELECT version, applied_at FROM
+  schema_migration ORDER BY version`.
+- Downgrades are not supported. There are no down migrations; roll back by
+  restoring the backup you took before upgrading.
+- Take a database backup before upgrading regardless. For SQLite, copy the
+  `.db` file while the service is stopped, or run
+  `sqlite3 llmproxy.db ".backup ..."` while it is running.
+- Data that a migration cannot invent stays empty rather than wrong. Keys
+  minted before `api_key.key_suffix` existed list an empty display suffix
+  until they are recreated.
 - The secret file format is stable and is never rewritten by the server; do
   not regenerate it during upgrades.

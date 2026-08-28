@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/config"
-	"github.com/monadical/llmproxy/internal/secrets"
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/config"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 func newSessionTestServer(t *testing.T) *Server {

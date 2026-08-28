@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/apierr"
-	"github.com/monadical/llmproxy/internal/secrets"
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/apierr"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 // Capabilities is what a binding may declare. Every entry that is also an

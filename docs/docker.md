@@ -1,5 +1,21 @@
 # Docker
 
+## The published image
+
+Tagged releases push a multi-arch (amd64 and arm64) image to the GitHub
+Container Registry:
+
+```bash
+docker pull ghcr.io/greyhavenhq/llmproxy:latest      # or :1.1.0, or :1
+docker run -p 127.0.0.1:4000:4000 -v llmproxy-data:/data \
+  -e LLMPROXY_ALLOW_NONLOCAL=1 ghcr.io/greyhavenhq/llmproxy:latest
+```
+
+Pin the exact version in production (`:1.1.0`); `:latest` and the major tag
+`:1` move under you, and a prerelease tag never moves either of them. The image
+is built from the same `Dockerfile` described below, with the version stamped
+into the binary.
+
 ## Building the image
 
 ```bash

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/apierr"
+	"github.com/greyhavenhq/llmproxy/internal/apierr"
 )
 
 // Web fetch for the playground's web_fetch tool: the browser cannot fetch

@@ -3,7 +3,7 @@ package server_test
 import (
 	"testing"
 
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 // The upstream's error type lands in error_kind as a token; the message stays

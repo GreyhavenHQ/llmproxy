@@ -18,7 +18,7 @@ linters:
         - (io.Closer).Close
         - (*database/sql.Rows).Close
         - (*database/sql.Tx).Rollback
-        - (*github.com/monadical/llmproxy/internal/store.Store).Close
+        - (*github.com/greyhavenhq/llmproxy/internal/store.Store).Close
         - fmt.Fprint
         - fmt.Fprintf
         - fmt.Fprintln

@@ -2,9 +2,9 @@
 default:
     @just --list
 
-# Build the static binary.
+# Build the static binary, stamped with the version from git.
 build:
-    CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/llmproxy ./cmd/llmproxy
+    CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/llmproxy ./cmd/llmproxy
 
 # Rebuild the embedded web UI (requires node; internal/server/uidist is committed so plain `go build` works without it).
 ui:

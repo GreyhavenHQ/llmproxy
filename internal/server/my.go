@@ -5,9 +5,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/apierr"
-	"github.com/monadical/llmproxy/internal/secrets"
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/apierr"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 func keyView(k *store.APIKey) map[string]any {

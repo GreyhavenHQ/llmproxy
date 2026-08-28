@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/secrets"
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 // Browser sessions for the built-in UI. The session cookie holds an opaque

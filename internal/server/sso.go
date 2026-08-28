@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/monadical/llmproxy/internal/apierr"
-	"github.com/monadical/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/apierr"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
 )
 
 // retryStateSuffix marks a state minted by the automatic retry after a state

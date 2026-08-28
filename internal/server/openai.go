@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/apierr"
-	"github.com/monadical/llmproxy/internal/catalog"
+	"github.com/greyhavenhq/llmproxy/internal/apierr"
+	"github.com/greyhavenhq/llmproxy/internal/catalog"
 )
 
 // OpenAI-compatible ingress. The request body is forwarded as received except

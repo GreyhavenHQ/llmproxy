@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/monadical/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
 )
 
 // SessionAuthResult identifies the principal behind a browser session.

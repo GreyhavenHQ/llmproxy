@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 func TestUnaryChatRoundtrip(t *testing.T) {

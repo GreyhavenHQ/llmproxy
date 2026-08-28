@@ -1,0 +1,112 @@
+# Release configuration. A pushed `v*` tag runs .github/workflows/release.yml,
+# which runs this. Validate changes without publishing anything:
+#   goreleaser release --snapshot --clean
+version: 2
+
+project_name: llmproxy
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: llmproxy
+    main: ./cmd/llmproxy
+    binary: llmproxy
+    # Pure-Go SQLite, no cgo: one static binary per platform, cross-compiled
+    # from the linux/amd64 runner. The web UI is embedded from the committed
+    # internal/server/uidist/, so no node toolchain is involved here either.
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      # No demand for an Intel Mac build; add it back here if that changes.
+      - goos: darwin
+        goarch: amd64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.gitCommit={{ .ShortCommit }}
+      - -X main.buildTime={{ .Date }}
+
+archives:
+  - id: llmproxy
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - README.md
+      - LICENSE
+      - CHANGELOG.md
+
+checksum:
+  name_template: checksums.txt
+
+# No docker section on purpose. goreleaser's image support drives `buildx
+# --load`, which cannot produce a multi-arch manifest and hangs against a
+# plain docker-driver builder. The container image is built and pushed by a
+# separate step in .github/workflows/release.yml, straight from ./Dockerfile.
+
+# Release notes are generated from conventional-commit subjects since the
+# previous tag. Commits that say nothing to a user are filtered out.
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^test:"
+      - "^test\\("
+      - "^chore:"
+      - "^chore\\("
+      - "^style:"
+      - "^style\\("
+      - "^refactor:"
+      - "^refactor\\("
+      - "^ci:"
+      - "^ci\\("
+      - "^build:"
+      - "^build\\("
+      - "^Merge pull request"
+      - "^Merge branch"
+      - "^merge "
+      - "typo"
+  groups:
+    - title: New features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Security updates
+      regexp: '^.*?sec(\(.+\))??!?:.+$'
+      order: 1
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 2
+    - title: Documentation
+      regexp: '^.*?docs(\(.+\))??!?:.+$'
+      order: 3
+    - title: Other work
+      order: 999
+
+release:
+  draft: false
+  prerelease: auto
+  footer: |
+    ## Install
+
+    ```bash
+    curl -fsSL https://github.com/greyhavenhq/llmproxy/releases/download/{{ .Tag }}/llmproxy_Linux_x86_64.tar.gz | tar xz
+    ./llmproxy serve
+    ```
+
+    Or with Docker:
+
+    ```bash
+    docker run -p 127.0.0.1:4000:4000 -v llmproxy-data:/data \
+      -e LLMPROXY_ALLOW_NONLOCAL=1 ghcr.io/greyhavenhq/llmproxy:{{ .Version }}
+    ```
+
+    **Full changelog**: https://github.com/greyhavenhq/llmproxy/compare/{{ .PreviousTag }}...{{ .Tag }}

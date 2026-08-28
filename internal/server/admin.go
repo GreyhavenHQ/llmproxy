@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/apierr"
-	"github.com/monadical/llmproxy/internal/catalog"
-	"github.com/monadical/llmproxy/internal/pricing"
-	"github.com/monadical/llmproxy/internal/secrets"
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/apierr"
+	"github.com/greyhavenhq/llmproxy/internal/catalog"
+	"github.com/greyhavenhq/llmproxy/internal/pricing"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 // Admin API: providers, model bindings, discovery, principals, keys, pricing,

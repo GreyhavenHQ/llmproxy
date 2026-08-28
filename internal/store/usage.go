@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/monadical/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
 )
 
 func (s *Store) InsertUsageEvent(ctx context.Context, ev *UsageEvent, quantities []UsageQuantity) error {

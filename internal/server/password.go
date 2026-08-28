@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/apierr"
+	"github.com/greyhavenhq/llmproxy/internal/apierr"
 )
 
 // Password login for the local admin principal. The password comes from

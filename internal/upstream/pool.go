@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/catalog"
+	"github.com/greyhavenhq/llmproxy/internal/catalog"
 )
 
 type Pool struct {

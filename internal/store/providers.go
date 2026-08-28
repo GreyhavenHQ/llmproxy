@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/monadical/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
 )
 
 const providerColumns = `id, name, wire_format, base_url, credential_ciphertext, verify_tls,

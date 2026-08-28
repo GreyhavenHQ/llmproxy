@@ -194,12 +194,12 @@ A model can also be a name for a model already bound. Give `target` instead of
 ```bash
 curl -s $P/admin/v1/models -H "authorization: Bearer $ADMIN" \
   -H 'content-type: application/json' \
-  -d '{"alias": "monadical/smart", "target": "z-ai/glm-5.2"}'
+  -d '{"alias": "acme/smart", "target": "z-ai/glm-5.2"}'
 ```
 
 ```json
 {
-  "alias": "monadical/smart",
+  "alias": "acme/smart",
   "target": "z-ai/glm-5.2",
   "provider": "tensorx",
   "upstream_name": "z-ai/glm-5.2",
@@ -213,7 +213,7 @@ The alias inherits its target's provider, upstream model, capabilities and
 prices; `provider`, `upstream_name` and `capabilities` in any read are always
 the resolved ones, and `target` says where they came from (`null` for a model
 that routes to a provider itself). Repoint or reprice the target and every
-name pointing at it follows, which is the point: `monadical/smart` is a
+name pointing at it follows, which is the point: `acme/smart` is a
 promise to your callers, and what fulfils it is yours to change.
 
 Rules, all enforced at write time:
@@ -252,7 +252,7 @@ curl -s -X PATCH $P/admin/v1/models/qwen-72b -H "authorization: Bearer $ADMIN" \
 # Rename it, or move it to another provider
 curl -s -X PATCH $P/admin/v1/models/qwen-72b -H "authorization: Bearer $ADMIN" \
   -H 'content-type: application/json' \
-  -d '{"alias": "monadical/smart", "provider": "vllm-2"}'
+  -d '{"alias": "acme/smart", "provider": "vllm-2"}'
 ```
 
 `capabilities` and `pricing`, when present, each replace the whole set: a unit
@@ -271,7 +271,7 @@ turns an alias back into a binding of its own, which needs `provider` and
 `upstream_name` in the same call:
 
 ```bash
-curl -s -X PATCH $P/admin/v1/models/monadical%2Fsmart -H "authorization: Bearer $ADMIN" \
+curl -s -X PATCH $P/admin/v1/models/acme%2Fsmart -H "authorization: Bearer $ADMIN" \
   -H 'content-type: application/json' \
   -d '{"target": "", "provider": "vllm-1", "upstream_name": "Qwen/Qwen3-72B"}'
 ```

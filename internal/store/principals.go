@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/monadical/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
 )
 
 const principalColumns = `id, name, kind, role, external_sub, email, created_at, sessions_revoked_before`

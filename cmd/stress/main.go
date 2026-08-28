@@ -25,10 +25,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/monadical/llmproxy/internal/config"
-	"github.com/monadical/llmproxy/internal/secrets"
-	"github.com/monadical/llmproxy/internal/server"
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/config"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/server"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 const chunkCount = 20

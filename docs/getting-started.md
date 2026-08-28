@@ -21,7 +21,7 @@ embedded at build time.
 ## 1. Build
 
 ```bash
-git clone https://gitea.app.monadical.io/monadical/llmproxy.git
+git clone https://github.com/greyhavenhq/llmproxy.git
 cd llmproxy
 just build          # -> bin/llmproxy (static, roughly 14 MiB)
 ```
@@ -34,7 +34,7 @@ for later: `just ui` (rebuild the embedded web UI), `just test`, `just race`,
 
 ```bash
 bin/llmproxy serve
-# llmproxy 1.0.0 listening on http://127.0.0.1:4000
+# llmproxy v1.1.0 listening on http://127.0.0.1:4000
 ```
 
 Without any OIDC configuration the proxy runs in local single-admin mode and

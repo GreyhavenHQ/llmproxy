@@ -18,10 +18,24 @@ Apache 2.0 licensed.
 
 ## Quickstart
 
-Requires a recent Go toolchain and [just](https://just.systems). No C compiler, no node.
+Grab a prebuilt binary from the [latest release](https://github.com/greyhavenhq/llmproxy/releases/latest) (linux/amd64, linux/arm64, darwin/arm64):
 
 ```bash
-git clone https://gitea.app.monadical.io/monadical/llmproxy.git && cd llmproxy
+curl -fsSL https://github.com/greyhavenhq/llmproxy/releases/latest/download/llmproxy_Linux_x86_64.tar.gz | tar xz
+./llmproxy serve      # http://127.0.0.1:4000
+```
+
+Or run the container image:
+
+```bash
+docker run -p 127.0.0.1:4000:4000 -v llmproxy-data:/data \
+  -e LLMPROXY_ALLOW_NONLOCAL=1 ghcr.io/greyhavenhq/llmproxy:latest
+```
+
+Or build from source, which needs a recent Go toolchain and [just](https://just.systems), no C compiler and no node:
+
+```bash
+git clone https://github.com/greyhavenhq/llmproxy.git && cd llmproxy
 just build            # -> bin/llmproxy (~14 MiB, static)
 bin/llmproxy serve    # http://127.0.0.1:4000
 ```
@@ -38,7 +52,7 @@ client.chat.completions.create(model="qwen-72b",
     messages=[{"role": "user", "content": "hello"}])
 ```
 
-Tagged releases carry prebuilt binaries for linux/amd64, linux/arm64 and darwin/arm64. `just docker` builds the container image; see [docs/docker.md](docs/docker.md) for compose and Postgres.
+See [docs/docker.md](docs/docker.md) for compose, Postgres and the published image.
 
 ## Documentation
 
@@ -62,4 +76,6 @@ just ui         # rebuild the embedded web UI (requires node)
 
 The web UI lives in `ui/` (React + Vite); its build output is committed in `internal/server/uidist/` and embedded via `go:embed`, so `go build` needs no node toolchain. Run `just ui` after changing anything under `ui/`.
 
-CI runs lint, the race-enabled test suite and the build on every push; tags matching `v*` produce a release with prebuilt binaries. Release notes in [CHANGELOG.md](CHANGELOG.md).
+CI runs lint, the race-enabled test suite, the build and a UI drift check on every push; tags matching `v*` publish a release with prebuilt binaries and the container image. Release notes live on the [releases page](https://github.com/greyhavenhq/llmproxy/releases).
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the development workflow, the commit-message convention and the release process. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

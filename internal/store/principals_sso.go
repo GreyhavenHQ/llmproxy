@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/monadical/llmproxy/internal/secrets"
+	"github.com/greyhavenhq/llmproxy/internal/secrets"
 )
 
 // sanitizePrincipalName reduces an IdP display name to the local naming rules.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/monadical/llmproxy/internal/store"
+	"github.com/greyhavenhq/llmproxy/internal/store"
 )
 
 func TestClientCapturedOnIngress(t *testing.T) {
