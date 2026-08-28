@@ -1,5 +1,11 @@
 # llmproxy
 
+[![GitHub stars](https://img.shields.io/github/stars/GreyhavenHQ/llmproxy)](https://github.com/GreyhavenHQ/llmproxy/stargazers)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/GreyhavenHQ/llmproxy)](go.mod)
+[![Release](https://img.shields.io/github/v/release/GreyhavenHQ/llmproxy)](https://github.com/GreyhavenHQ/llmproxy/releases)
+[![Docker](https://img.shields.io/badge/ghcr.io-greyhavenhq%2Fllmproxy-blue?logo=docker)](https://github.com/GreyhavenHQ/llmproxy/pkgs/container/llmproxy)
+
 A self-hosted, OpenAI-compatible LLM proxy: one static Go binary with an embedded web UI. Point any OpenAI SDK at it with one line changed and it routes to your vLLM, SGLang, OpenAI or other OpenAI-compatible upstreams, with per-user API keys, a curated model catalog and usage accounting.
 
 **No prompt, completion or other request/response content is ever persisted.** The database schema has no column that could hold a body, and tests enforce it.
