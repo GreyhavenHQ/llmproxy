@@ -598,8 +598,10 @@ export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* The table needs the full row; the donut shares it. */}
-            <Card className={modelTable ? 'lg:col-span-2' : undefined}>
+            {/* The table needs the full row; the donut shares it. min-w-0
+                lets a wide table scroll in its own card rather than stretch
+                the grid column. */}
+            <Card className={modelTable ? 'min-w-0 lg:col-span-2' : 'min-w-0'}>
               <CardHeader className="flex flex-row items-start justify-between">
                 <div className="flex flex-col gap-1.5">
                   <CardTitle className="font-serif">Models</CardTitle>
@@ -641,7 +643,7 @@ export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
                       )}
                       {byModel.map((m, i) => (
                         <TableRow key={i}>
-                          <TableCell className="font-mono text-xs">
+                          <TableCell className="font-mono text-xs wrap-anywhere">
                             {m.model || <span className="text-muted-foreground">(none)</span>}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
@@ -696,7 +698,7 @@ export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
               </CardContent>
             </Card>
 
-            <Card className={clientTable ? 'lg:col-span-2' : undefined}>
+            <Card className={clientTable ? 'min-w-0 lg:col-span-2' : 'min-w-0'}>
               <CardHeader className="flex flex-row items-start justify-between">
                 <div className="flex flex-col gap-1.5">
                   <CardTitle className="font-serif">Clients</CardTitle>
@@ -753,7 +755,7 @@ export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
                       {byClient.map((c, i) => (
                         <TableRow key={i}>
                           <TableCell
-                            className="font-mono text-xs"
+                            className="font-mono text-xs wrap-anywhere"
                             title={c.exact.size ? [...c.exact].sort().join('\n') : undefined}
                           >
                             {c.label}

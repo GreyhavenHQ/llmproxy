@@ -130,14 +130,18 @@ function OutcomeBadge({ row }: { row: RequestRow }) {
 
 // UserCell: the caller, with the last four of the key they used trailing it.
 // Relay traffic carries a relay token rather than a key, so those rows show
-// the name alone.
+// the name alone. A long name truncates with the full value on hover, like
+// the model column: this table is dense enough that wrapping costs more than
+// it gives.
 function UserCell({ row }: { row: RequestRow }) {
   return (
-    <span className="whitespace-nowrap">
-      {row.principal}
+    <span className="flex items-baseline">
+      <span className="max-w-36 truncate" title={row.principal}>
+        {row.principal}
+      </span>
       {row.key_suffix && (
         <span
-          className="ml-1.5 font-mono text-xs text-muted-foreground"
+          className="ml-1.5 shrink-0 font-mono text-xs text-muted-foreground"
           title={row.key_label || undefined}
         >
           ···{row.key_suffix}
@@ -154,8 +158,8 @@ function AppCell({ row }: { row: RequestRow }) {
   const app = tagValue(row.tags, 'app')
   if (app) {
     return (
-      <Badge variant="tag" size="sm" className="font-mono">
-        {app}
+      <Badge variant="tag" size="sm" className="max-w-full font-mono" title={app}>
+        <span className="min-w-0 truncate">{app}</span>
       </Badge>
     )
   }
@@ -539,7 +543,7 @@ export function Requests() {
                       <TableCell>
                         <UserCell row={r} />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="max-w-44">
                         <AppCell row={r} />
                       </TableCell>
                       <TableCell

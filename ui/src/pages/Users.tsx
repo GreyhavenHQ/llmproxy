@@ -71,7 +71,7 @@ export function Users() {
               )}
               {users.map((p) => (
                 <TableRow key={p.id}>
-                  <TableCell>{p.name}</TableCell>
+                  <TableCell className="wrap-anywhere">{p.name}</TableCell>
                   <TableCell>
                     {p.role === 'admin' ? (
                       <Badge variant="secondary">admin</Badge>
@@ -79,7 +79,7 @@ export function Users() {
                       'member'
                     )}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right whitespace-nowrap">
                     <RevokeSessionsButton principal={p} />
                   </TableCell>
                 </TableRow>

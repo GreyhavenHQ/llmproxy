@@ -186,11 +186,13 @@ export function Services() {
               )}
               {data?.keys.map((k) => (
                 <TableRow key={k.id}>
-                  <TableCell>{k.principal}</TableCell>
+                  <TableCell className="wrap-anywhere">{k.principal}</TableCell>
                   <TableCell className="font-mono text-xs">***{k.key_suffix}</TableCell>
-                  <TableCell>{formatDay(k.created_at)}</TableCell>
-                  <TableCell>{formatDay(k.last_used_at) || 'never'}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="whitespace-nowrap">{formatDay(k.created_at)}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {formatDay(k.last_used_at) || 'never'}
+                  </TableCell>
+                  <TableCell className="text-right whitespace-nowrap">
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="ghost" size="sm">

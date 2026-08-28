@@ -42,8 +42,8 @@ export function UsageTable({
         )}
         {rows.map((r, i) => (
           <TableRow key={i}>
-            {withPrincipal && <TableCell>{r.principal}</TableCell>}
-            <TableCell className="font-mono text-xs">{r.model}</TableCell>
+            {withPrincipal && <TableCell className="wrap-anywhere">{r.principal}</TableCell>}
+            <TableCell className="font-mono text-xs wrap-anywhere">{r.model}</TableCell>
             <TableCell>{r.endpoint}</TableCell>
             <TableCell className="text-right tabular-nums">{formatTokens(r.requests)}</TableCell>
             <TableCell className="text-right tabular-nums">{formatTokens(r.units['input_tokens'])}</TableCell>

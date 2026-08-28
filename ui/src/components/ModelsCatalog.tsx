@@ -237,7 +237,7 @@ export function ModelsCatalog() {
                 )}
                 {rows.map((r) => (
                   <TableRow key={r.model.id}>
-                    <TableCell className="font-medium">
+                    <TableCell className="font-medium wrap-anywhere">
                       <span className="flex flex-col">
                         <span className="flex flex-wrap items-center gap-2">
                           {r.model.id}
