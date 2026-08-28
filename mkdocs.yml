@@ -12,24 +12,28 @@ docs_dir: docs
 
 theme:
   name: material
+  logo: assets/images/greyhaven-symbol-white.svg
+  favicon: assets/images/favicon.svg
   features:
     - navigation.sections
     - navigation.top
     - navigation.instant
     - content.code.copy
     - search.suggest
+  # Colors come from extra_css (the Greyhaven tokens); "custom" stops the
+  # theme from emitting its own color rules that would override them.
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: black
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: black
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
@@ -81,6 +85,9 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.highlight
   - pymdownx.inlinehilite
+
+extra_css:
+  - assets/stylesheets/greyhaven.css
 
 extra:
   social:
