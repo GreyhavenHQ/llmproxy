@@ -7,14 +7,17 @@ Container Registry.
 
 ```bash
 docker run -p 127.0.0.1:4000:4000 -v llmproxy-data:/data \
-  -e LLMPROXY_ALLOW_NONLOCAL=1 ghcr.io/greyhavenhq/llmproxy:1.0.0
+  -e LLMPROXY_ALLOW_NONLOCAL=1 -e LLMPROXY_ADMIN_PASSWORD=change-me \
+  ghcr.io/greyhavenhq/llmproxy:1.0.0
 ```
 
 ```
 llmproxy v1.0.0 listening on http://0.0.0.0:4000
 ```
 
-Two things this command does deliberately:
+Open <http://127.0.0.1:4000> and sign in with `change-me`.
+
+Three things this command does deliberately:
 
 - **Mounts `/data`.** All state lives there. Without a volume, the database,
   the key secret and the admin password vanish with the container.
@@ -23,6 +26,12 @@ Two things this command does deliberately:
   guard](binary.md#the-loopback-guard). Inside a container the real exposure
   boundary is the port mapping, so publish the port narrowly, as above. In SSO
   mode the guard does not apply and the variable is unnecessary.
+- **Sets `LLMPROXY_ADMIN_PASSWORD`.** Without it a random password is
+  generated into `/data/admin-password`, and the log only reports the file
+  name. Read it with `docker exec <container> cat /data/admin-password`. See
+  [the admin password](../reference/configuration.md#the-admin-password) to
+  rotate it, and [the SSO guide](../guides/sso.md) to replace it with your
+  identity provider.
 
 Pin the exact version in production. `:latest` and the major tag `:1` move
 under you; a prerelease tag moves neither.
@@ -30,8 +39,8 @@ under you; a prerelease tag moves neither.
 ## Use docker compose
 
 `docker-compose.yml` in the repository is the local-mode setup: SQLite state
-in a named volume, `LLMPROXY_ALLOW_NONLOCAL=1`, and the port published only on
-the host's loopback.
+in a named volume, `LLMPROXY_ALLOW_NONLOCAL=1`, the admin password set to
+`change-me`, and the port published only on the host's loopback.
 
 1. Start it:
 
@@ -44,17 +53,13 @@ the host's loopback.
    {"status":"ok"}
    ```
 
-2. Read the generated admin password:
+2. Open <http://127.0.0.1:4000> and sign in with `change-me`. From the UI,
+   register providers, bind models and mint keys.
 
-   ```bash
-   docker compose exec llmproxy cat /data/admin-password
-   ```
-
-3. Open <http://127.0.0.1:4000> and sign in. From the UI, register providers,
-   bind models and mint keys.
-
-To choose the password yourself, set `LLMPROXY_ADMIN_PASSWORD` in the compose
-file instead of step 2.
+Change `LLMPROXY_ADMIN_PASSWORD` in the compose file before exposing the port
+beyond loopback, or remove it to have a random password generated into
+`/data/admin-password` (read it with
+`docker compose exec llmproxy cat /data/admin-password`).
 
 To bootstrap over the API, mint a key through the container, which shares the
 same `/data`:

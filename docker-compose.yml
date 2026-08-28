@@ -18,6 +18,10 @@ services:
       - llmproxy-data:/data
     environment:
       LLMPROXY_ALLOW_NONLOCAL: "1"
+      # Browser login for the local admin. Remove to generate a random one
+      # into /data/admin-password instead (read it with `docker compose exec
+      # llmproxy cat /data/admin-password`).
+      LLMPROXY_ADMIN_PASSWORD: change-me
       # SSO (Authentik or any OIDC provider) instead of local mode:
       # LLMPROXY_OIDC_ISSUER: https://auth.example.com/application/o/llmproxy/
       # LLMPROXY_OIDC_CLIENT_ID: llmproxy

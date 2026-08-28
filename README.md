@@ -43,7 +43,8 @@ Or run the container image:
 
 ```bash
 docker run -p 127.0.0.1:4000:4000 -v llmproxy-data:/data \
-  -e LLMPROXY_ALLOW_NONLOCAL=1 ghcr.io/greyhavenhq/llmproxy:latest
+  -e LLMPROXY_ALLOW_NONLOCAL=1 -e LLMPROXY_ADMIN_PASSWORD=change-me \
+  ghcr.io/greyhavenhq/llmproxy:latest
 ```
 
 Or build from source, which needs a recent Go toolchain and [just](https://just.systems), no C compiler and no node:
@@ -54,7 +55,7 @@ just build            # -> bin/llmproxy (~14 MiB, static)
 bin/llmproxy serve    # http://127.0.0.1:4000
 ```
 
-Open http://127.0.0.1:4000 and sign in with the admin password (generated at first boot into `.llmproxy/admin-password`, or set `LLMPROXY_ADMIN_PASSWORD`). From the UI: register providers, bind models, create API keys, watch usage. The whole flow is walked through in [docs/getting-started.md](docs/getting-started.md).
+Open http://127.0.0.1:4000 and sign in with the admin password: `change-me` for the container command above, or the one generated at first boot into `.llmproxy/admin-password` for the binary. See [the admin password](docs/reference/configuration.md#the-admin-password) to set or rotate it, and [the SSO guide](docs/guides/sso.md) to replace it with your identity provider. From the UI: register providers, bind models, create API keys, watch usage. The whole flow is walked through in [docs/getting-started.md](docs/getting-started.md).
 
 Then use it from any OpenAI SDK, one line changed:
 
