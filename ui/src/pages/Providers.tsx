@@ -376,8 +376,8 @@ export function Providers() {
                     </TableRow>
                   ) : (
                     <TableRow key={p.name}>
-                      <TableCell className="font-medium">{p.name}</TableCell>
-                      <TableCell className="font-mono text-xs">{p.base_url}</TableCell>
+                      <TableCell className="font-medium wrap-anywhere">{p.name}</TableCell>
+                      <TableCell className="font-mono text-xs wrap-anywhere">{p.base_url}</TableCell>
                       <TableCell>
                         {p.has_credential ? (
                           <Badge variant="secondary">set</Badge>
@@ -399,7 +399,7 @@ export function Providers() {
                           aria-label={`Enable ${p.name}`}
                         />
                       </TableCell>
-                      <TableCell className="flex items-center justify-end gap-1">
+                      <TableCell className="flex items-center justify-end gap-1 whitespace-nowrap">
                         <Button
                           variant="outline"
                           size="sm"
@@ -481,7 +481,7 @@ export function Providers() {
                 )}
                 {discovered.models.map((m) => (
                   <TableRow key={m.upstream_name}>
-                    <TableCell className="font-mono text-xs">{m.upstream_name}</TableCell>
+                    <TableCell className="font-mono text-xs wrap-anywhere">{m.upstream_name}</TableCell>
                     <TableCell>
                       {m.bound_alias ? (
                         <Badge variant="secondary">{m.bound_alias}</Badge>

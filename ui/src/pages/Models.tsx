@@ -132,9 +132,15 @@ function PriceSummary({ model }: { model: Model }) {
   if (parts.length === 0) {
     return <span className="text-muted-foreground">unpriced</span>
   }
+  // Each figure stays whole; the line breaks between them rather than inside.
   return (
-    <span className="whitespace-nowrap tabular-nums">
-      {parts.join(' · ')}
+    <span className="tabular-nums">
+      {parts.map((part, i) => (
+        <span key={part} className="whitespace-nowrap">
+          {i > 0 && ' · '}
+          {part}
+        </span>
+      ))}
       {model.pricing_inherited && (
         <Badge variant="muted" className="ml-2" title="Priced under the upstream model name">
           inherited
@@ -670,14 +676,14 @@ export function Models() {
                     </TableRow>
                   ) : (
                     <TableRow key={m.alias}>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium wrap-anywhere">
                         <span className="flex flex-wrap items-center gap-2">
                           {m.alias}
                           {m.hidden && <Badge variant="muted">hidden</Badge>}
                         </span>
                       </TableCell>
-                      <TableCell>{m.provider}</TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="wrap-anywhere">{m.provider}</TableCell>
+                      <TableCell className="font-mono text-xs wrap-anywhere">
                         {m.target ? (
                           // An alias shows what it points at, and under it
                           // where that lands.

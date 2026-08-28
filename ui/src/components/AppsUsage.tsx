@@ -457,7 +457,9 @@ export function AppsUsage() {
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">
-            <Card className={appTable ? 'lg:col-span-2' : undefined}>
+            {/* min-w-0 lets a wide table scroll in its own card rather than
+                stretch the grid column. */}
+            <Card className={appTable ? 'min-w-0 lg:col-span-2' : 'min-w-0'}>
               <CardHeader className="flex flex-row items-start justify-between">
                 <div className="flex flex-col gap-1.5">
                   <CardTitle className="font-serif">Apps</CardTitle>
@@ -497,7 +499,7 @@ export function AppsUsage() {
                       )}
                       {byApp.map((a, i) => (
                         <TableRow key={i}>
-                          <TableCell className="font-mono text-xs">{a.name}</TableCell>
+                          <TableCell className="font-mono text-xs wrap-anywhere">{a.name}</TableCell>
                           <TableCell className="text-right tabular-nums">
                             {appRequestsTotal > 0
                               ? `${((a.requests / appRequestsTotal) * 100).toFixed(1)}%`
@@ -657,8 +659,10 @@ export function AppsUsage() {
                   )}
                   {byAppModel.map((r, i) => (
                     <TableRow key={i}>
-                      {!app && <TableCell className="font-mono text-xs">{r.name}</TableCell>}
-                      <TableCell className="font-mono text-xs">{r.model}</TableCell>
+                      {!app && (
+                        <TableCell className="font-mono text-xs wrap-anywhere">{r.name}</TableCell>
+                      )}
+                      <TableCell className="font-mono text-xs wrap-anywhere">{r.model}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCompact(r.requests)}
                       </TableCell>

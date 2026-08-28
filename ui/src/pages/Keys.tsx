@@ -148,11 +148,15 @@ function ApiKeysCard() {
               )}
               {data?.keys.map((k) => (
                 <TableRow key={k.id}>
-                  <TableCell>{k.label || <span className="text-muted-foreground">(no label)</span>}</TableCell>
+                  <TableCell className="wrap-anywhere">
+                    {k.label || <span className="text-muted-foreground">(no label)</span>}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">***{k.key_suffix}</TableCell>
-                  <TableCell>{formatDay(k.created_at)}</TableCell>
-                  <TableCell>{formatDay(k.last_used_at) || 'never'}</TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">{formatDay(k.created_at)}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {formatDay(k.last_used_at) || 'never'}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="ghost" size="sm">
@@ -302,11 +306,15 @@ function RelayTokensCard() {
               )}
               {data?.relay_tokens.map((rt) => (
                 <TableRow key={rt.id}>
-                  <TableCell>{rt.label || <span className="text-muted-foreground">(no label)</span>}</TableCell>
+                  <TableCell className="wrap-anywhere">
+                    {rt.label || <span className="text-muted-foreground">(no label)</span>}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">***{rt.token_suffix}</TableCell>
-                  <TableCell>{formatDay(rt.created_at)}</TableCell>
-                  <TableCell>{formatDay(rt.last_used_at) || 'never'}</TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">{formatDay(rt.created_at)}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {formatDay(rt.last_used_at) || 'never'}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="ghost" size="sm">
