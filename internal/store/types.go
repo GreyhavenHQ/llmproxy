@@ -72,6 +72,10 @@ type ModelBinding struct {
 	CreatedAt     string
 	// TargetID points at the binding this one aliases; invalid when direct.
 	TargetID sql.NullString
+	// Hidden keeps the row out of the caller-facing model list. It is per row
+	// and never inherited: hiding a target says nothing about its aliases.
+	// Routing ignores it, so a hidden model stays callable by name.
+	Hidden bool
 	// TargetAlias and ProviderName are populated by joined queries.
 	// TargetAlias is empty for a direct binding.
 	TargetAlias  string

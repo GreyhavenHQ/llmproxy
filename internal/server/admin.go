@@ -392,6 +392,7 @@ func modelView(b *store.ModelBinding, idx *pricing.Index) map[string]any {
 		"target":            nil,
 		"pricing":           prices,
 		"pricing_inherited": inherited,
+		"hidden":            b.Hidden,
 	}
 	// provider, upstream_name and capabilities are the resolved ones either
 	// way; target says where they came from.
@@ -488,6 +489,7 @@ func (s *Server) handleModelCreate(w http.ResponseWriter, r *http.Request, auth 
 		Capabilities []string            `json:"capabilities"`
 		Origin       string              `json:"origin"`
 		Pricing      map[string]*float64 `json:"pricing"`
+		Hidden       bool                `json:"hidden"`
 	}{Capabilities: []string{"chat", "chat_stream"}, Origin: "declared"}
 	if perr := readJSONBody(r, 1<<20, &body); perr != nil {
 		writeProxyError(w, perr)
@@ -540,7 +542,7 @@ func (s *Server) handleModelCreate(w http.ResponseWriter, r *http.Request, auth 
 		return
 	}
 
-	binding := &store.ModelBinding{Alias: alias, Origin: body.Origin}
+	binding := &store.ModelBinding{Alias: alias, Origin: body.Origin, Hidden: body.Hidden}
 	if body.Target != "" {
 		target, perr := s.resolveTarget(r.Context(), alias, body.Target)
 		if perr != nil {
@@ -630,6 +632,7 @@ func (s *Server) handleModelPatch(w http.ResponseWriter, r *http.Request, auth *
 		UpstreamName *string             `json:"upstream_name"`
 		Target       *string             `json:"target"`
 		Pricing      map[string]*float64 `json:"pricing"`
+		Hidden       *bool               `json:"hidden"`
 	}
 	if perr := readJSONBody(r, 1<<20, &body); perr != nil {
 		writeProxyError(w, perr)
@@ -710,6 +713,11 @@ func (s *Server) handleModelPatch(w http.ResponseWriter, r *http.Request, auth *
 				"clearing the target needs 'provider' and 'upstream_name' in the same call"))
 			return
 		}
+	}
+	// hidden is the row's own, so an alias can be hidden without touching its
+	// target and the other way round.
+	if body.Hidden != nil {
+		binding.Hidden = *body.Hidden
 	}
 	// Renaming keeps the row, so the model stays one thing across the change:
 	// its prices follow it and callers only see the name move.

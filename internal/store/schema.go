@@ -90,7 +90,8 @@ CREATE TABLE IF NOT EXISTS model_binding (
     origin TEXT NOT NULL DEFAULT 'declared',
     discovered_at TEXT,
     created_at TEXT NOT NULL,
-    target_id TEXT REFERENCES model_binding(id)
+    target_id TEXT REFERENCES model_binding(id),
+    hidden INTEGER NOT NULL DEFAULT 0
 );
 -- client is the caller's User-Agent header, truncated. tags is the caller's
 -- x-llmproxy-tags header, normalised to a canonical comma-separated
