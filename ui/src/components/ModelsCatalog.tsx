@@ -21,6 +21,7 @@ import { addBuckets, floorBucket, RANGES } from '@/lib/timerange'
 import { useAsync } from '@/lib/useAsync'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Card,
@@ -92,6 +93,7 @@ function SortHead({
 export function ModelsCatalog() {
   const [rangeKey, setRangeKey] = useState('30d')
   const [sort, setSort] = useState<SortKey>('name')
+  const [showHidden, setShowHidden] = useState(false)
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[2]
 
   const windowEnd = floorBucket(new Date(), range.bucket)
@@ -99,8 +101,13 @@ export function ModelsCatalog() {
     ? addBuckets(windowEnd, range.bucket, -(range.count - 1))
     : null
 
-  // The catalog does not change with the range, so it is fetched once.
-  const models = useAsync(() => api.get<{ data: CatalogModel[] }>('/v1/models'), [])
+  // The catalog does not change with the range, so it is fetched once. Hidden
+  // models come along: they are off the caller-facing list but can still have
+  // spent money, so they belong here behind a toggle.
+  const models = useAsync(
+    () => api.get<{ data: CatalogModel[] }>('/v1/models?include_hidden=1'),
+    [],
+  )
   const summary = useAsync(
     () =>
       api.get<{ usage: StatsRow[] }>(
@@ -121,12 +128,14 @@ export function ModelsCatalog() {
       acc.tokens += (row.units['input_tokens'] ?? 0) + (row.units['output_tokens'] ?? 0)
       if (row.cost !== null) acc.cost = (acc.cost ?? 0) + row.cost
     }
-    const out: Row[] = (models.data?.data ?? []).map((model) => ({
-      model,
-      requests: usage.get(model.id)?.requests ?? 0,
-      tokens: usage.get(model.id)?.tokens ?? 0,
-      cost: usage.get(model.id)?.cost ?? null,
-    }))
+    const out: Row[] = (models.data?.data ?? [])
+      .filter((model) => showHidden || !model.hidden)
+      .map((model) => ({
+        model,
+        requests: usage.get(model.id)?.requests ?? 0,
+        tokens: usage.get(model.id)?.tokens ?? 0,
+        cost: usage.get(model.id)?.cost ?? null,
+      }))
     // Alphabetical is the tie-break under every sort, so equally unused
     // models keep a stable, readable order.
     const byName = (a: Row, b: Row) => a.model.id.localeCompare(b.model.id)
@@ -135,7 +144,9 @@ export function ModelsCatalog() {
       if (sort === 'cost') return (b.cost ?? -1) - (a.cost ?? -1) || byName(a, b)
       return b[sort] - a[sort] || byName(a, b)
     })
-  }, [models.data, summary.data, sort])
+  }, [models.data, summary.data, sort, showHidden])
+
+  const hiddenCount = (models.data?.data ?? []).filter((m) => m.hidden).length
 
   const loading = models.loading && !models.data
   const stale = !loading && (models.loading || summary.loading)
@@ -166,6 +177,15 @@ export function ModelsCatalog() {
         >
           <RefreshCw />
         </Button>
+        {hiddenCount > 0 && (
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Checkbox
+              checked={showHidden}
+              onCheckedChange={(c) => setShowHidden(c === true)}
+            />
+            Show hidden
+          </label>
+        )}
       </div>
 
       {loading ? (
@@ -219,7 +239,10 @@ export function ModelsCatalog() {
                   <TableRow key={r.model.id}>
                     <TableCell className="font-medium">
                       <span className="flex flex-col">
-                        <span>{r.model.id}</span>
+                        <span className="flex flex-wrap items-center gap-2">
+                          {r.model.id}
+                          {r.model.hidden && <Badge variant="muted">hidden</Badge>}
+                        </span>
                         {r.model.alias_of && (
                           <span className="font-mono text-xs text-muted-foreground">
                             → {r.model.alias_of}
