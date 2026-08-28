@@ -60,6 +60,8 @@ content is ever persisted.
 
 ## Contribute
 
-- [CONTRIBUTING.md](../CONTRIBUTING.md): development setup, the writing rules
-  for these pages, the commit convention, how a release is cut.
-- [SECURITY.md](../SECURITY.md): how to report a vulnerability privately.
+- [CONTRIBUTING.md](https://github.com/greyhavenhq/llmproxy/blob/main/CONTRIBUTING.md):
+  development setup, the writing rules for these pages, the commit convention,
+  how a release is cut.
+- [SECURITY.md](https://github.com/greyhavenhq/llmproxy/blob/main/SECURITY.md):
+  how to report a vulnerability privately.

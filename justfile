@@ -30,6 +30,10 @@ docker:
 lint:
     golangci-lint run
 
+# Preview the documentation site at http://127.0.0.1:8000 (requires uv).
+docs:
+    uvx --with mkdocs==1.6.1 --with mkdocs-material==9.5.49 --with mkdocs-redirects==1.2.2 mkdocs serve
+
 # Remove build artifacts.
 clean:
     rm -rf bin

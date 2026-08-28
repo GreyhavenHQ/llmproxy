@@ -1,0 +1,88 @@
+site_name: llmproxy
+site_description: >-
+  A self-hosted, OpenAI-compatible LLM proxy: one static Go binary, per-user
+  API keys, a curated model catalog and usage accounting.
+site_url: https://greyhavenhq.github.io/llmproxy/
+repo_url: https://github.com/greyhavenhq/llmproxy
+repo_name: greyhavenhq/llmproxy
+edit_uri: edit/main/docs/
+copyright: Apache-2.0
+
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - content.code.copy
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: README.md
+  - Getting started: getting-started.md
+  - Deploy it:
+      - Install the binary: install/binary.md
+      - Install with Docker: install/docker.md
+      - Upgrades and backup: install/upgrades.md
+  - Operate it:
+      - Manage providers: guides/providers.md
+      - Manage models: guides/models.md
+      - Manage API keys: guides/api-keys.md
+      - Set prices: guides/pricing.md
+      - Read usage and cost: guides/usage.md
+      - Set up SSO: guides/sso.md
+      - Meter Claude Code: guides/claude-code.md
+  - Look it up:
+      - Configuration: reference/configuration.md
+      - API surface: reference/api.md
+      - Performance: reference/performance.md
+  - Understand it:
+      - Architecture: concepts/architecture.md
+
+plugins:
+  - search
+  # Keep links published before the docs were reorganised working.
+  - redirects:
+      redirect_maps:
+        installation.md: install/binary.md
+        docker.md: install/docker.md
+        upgrades.md: install/upgrades.md
+        providers-and-models.md: guides/providers.md
+        keys-and-usage.md: guides/api-keys.md
+        sso.md: guides/sso.md
+        transparent-relay.md: guides/claude-code.md
+        configuration.md: reference/configuration.md
+        api.md: reference/api.md
+        performance.md: reference/performance.md
+        architecture.md: concepts/architecture.md
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/greyhavenhq/llmproxy
