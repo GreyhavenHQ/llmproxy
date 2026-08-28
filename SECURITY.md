@@ -31,10 +31,10 @@ Things that are known and deliberate, not vulnerabilities:
   box grants access, which is why the server refuses to bind a non-loopback
   address without `-allow-nonlocal`. Running it exposed with that flag is a
   configuration choice, documented in
-  [docs/installation.md](docs/installation.md).
+  [docs/install/binary.md](docs/install/binary.md).
 - **The proxy does not inspect request bodies.** It forwards them byte-for-byte.
   Content filtering and prompt-level policy are out of scope by design; see the
-  non-goals table in [docs/architecture.md](docs/architecture.md).
+  non-goals table in [docs/concepts/architecture.md](docs/concepts/architecture.md).
 - **Losing the key secret invalidates keys, not confidentiality of past
   traffic.** The secret (`LLMPROXY_KEY_SECRET` or the generated secret file)
   is what makes stored key hashes and encrypted provider credentials usable.
