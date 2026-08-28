@@ -60,15 +60,23 @@ client.chat.completions.create(model="qwen-72b",
     messages=[{"role": "user", "content": "hello"}])
 ```
 
-See [docs/docker.md](docs/docker.md) for compose, Postgres and the published image.
+See [docs/install/docker.md](docs/install/docker.md) for compose, Postgres and the published image, and [docs/install/binary.md](docs/install/binary.md) for systemd.
 
 ## Documentation
 
-Everything lives in [docs/](docs/README.md): a getting-started tutorial, how-to guides (installation, Docker, SSO, providers and models, keys and usage, the Anthropic relay), reference (configuration, the HTTP API, an OpenAPI 3.1 spec, performance) and an architecture explanation.
+Rendered at **[greyhavenhq.github.io/llmproxy](https://greyhavenhq.github.io/llmproxy/)**, source in [docs/](docs/README.md).
+
+| | |
+|---|---|
+| Try it | [Getting started](docs/getting-started.md) |
+| Deploy it | [binary](docs/install/binary.md), [Docker](docs/install/docker.md), [upgrades](docs/install/upgrades.md) |
+| Operate it | [providers](docs/guides/providers.md), [models](docs/guides/models.md), [API keys](docs/guides/api-keys.md), [pricing](docs/guides/pricing.md), [usage](docs/guides/usage.md), [SSO](docs/guides/sso.md), [Claude Code](docs/guides/claude-code.md) |
+| Look it up | [configuration](docs/reference/configuration.md), [API](docs/reference/api.md), [OpenAPI spec](docs/reference/openapi.yaml), [performance](docs/reference/performance.md) |
+| Understand it | [architecture](docs/concepts/architecture.md) |
 
 ## Performance
 
-The built-in stress harness sustains around 8,500 req/s at concurrency 200 on SQLite, every request accounted, heap under 50 MiB. Numbers, method and caveats in [docs/performance.md](docs/performance.md); reproduce with `just stress`.
+The built-in stress harness sustains around 8,500 req/s at concurrency 200 on SQLite, every request accounted, heap under 50 MiB. Numbers, method and caveats in [docs/reference/performance.md](docs/reference/performance.md); reproduce with `just stress`.
 
 ## Development
 

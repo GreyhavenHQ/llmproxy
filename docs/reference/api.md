@@ -17,7 +17,7 @@ The full machine-readable spec is in [openapi.yaml](openapi.yaml).
 | `POST /v1/audio/transcriptions` | Planned | Streamed multipart, no disk spill; `audio_seconds` unit reserved. |
 | `POST /v1/audio/translations` | Out of scope | Add on demand once transcription exists. |
 | `POST /v1/responses` | Out of scope for 1.0 | OpenAI Responses API; revisit with evidence. |
-| `/v1/batches`, `/v1/files` | Out of scope | Deliberate non-goal; see [architecture.md](architecture.md#scope-and-non-goals). |
+| `/v1/batches`, `/v1/files` | Out of scope | Deliberate non-goal; see [architecture](../concepts/architecture.md#scope-and-non-goals). |
 | `/v1/images/*`, `/v1/audio/speech`, `/v1/moderations`, fine-tuning, assistants | Out of scope | Non-goals. |
 | `POST /v1/messages` (Anthropic dialect) | Planned | Second ingress adapter over the same catalog. Until then, the transparent relay (below) covers Anthropic-native tooling that brings its own credentials. |
 
@@ -43,11 +43,11 @@ Requests may carry `x-llmproxy-tags`, a comma-separated list of `key:value`
 pairs (`app:dataindex,context:search`) naming the calling application. The
 proxy stores the normalised list on the usage event and the Usage tab's Apps
 subtab breaks spend down by it; see
-[keys-and-usage.md](keys-and-usage.md#application-tags). Malformed pairs are
+[usage](../guides/usage.md#tag-requests-by-application). Malformed pairs are
 dropped rather than rejected, and the header never reaches an upstream.
 
 No request or response content is ever logged or persisted, and there is no
-flag to turn that on; see [architecture.md](architecture.md).
+flag to turn that on; see [architecture](../concepts/architecture.md).
 
 Proxy-generated error codes: `missing_api_key`, `invalid_api_key`,
 `admin_required`, `model_not_found` (404), `unknown_endpoint` (404, with a
@@ -75,7 +75,7 @@ The proxy's usage is team-visible by design; the admin role gates
 configuration, not visibility. Every endpoint accepts the same filters:
 `principal`, `key` (an API key id), `provider`, `model`, `client`, `tag`,
 `outcome` and the `since`/`until` window; see
-[keys-and-usage.md](keys-and-usage.md#team-statistics). `tag` takes one exact
+[usage](../guides/usage.md#query-team-wide-statistics). `tag` takes one exact
 `key:value` pair, is repeatable up to four times, and several pairs narrow
 together; a pair nothing carries simply matches nothing. `outcome` takes
 `ok`, `upstream_error`, `unreachable`, `cancelled` or the meta value
@@ -110,7 +110,7 @@ unary bodies) and recorded under the sentinel provider
 event, except HEAD/OPTIONS probes, which relay unrecorded.
 Proxy-generated errors: 404 `unknown_relay_token`, 404
 `transparent_relay_disabled`, 502 `provider_unreachable`. Docs:
-[transparent-relay.md](transparent-relay.md).
+[claude-code](../guides/claude-code.md).
 
 ## Admin (`/admin/v1`, admin role required, lists paginated)
 
@@ -128,6 +128,51 @@ Proxy-generated errors: 404 `unknown_relay_token`, 404
 | `GET /usage/series?bucket&since&until&principal` | Usage bucketed by hour/day/week/month across everyone |
 | `GET /requests?limit&offset` | The request metadata log with per-unit quantities (who, key, model, outcome, tokens; never content); same filters as `/stats/requests` |
 | `GET /events` | Metadata-only admin audit trail |
+
+### Pagination
+
+Every admin list endpoint (`providers`, `models`, `keys`, `principals`,
+`events`) accepts `limit` (1 to 500, default 100) and `offset` (default 0) and
+echoes both back:
+
+```bash
+curl -s "$P/admin/v1/models?provider=vllm-1&limit=50&offset=50" \
+  -H "authorization: Bearer $ADMIN"
+```
+
+Out-of-range values fall back to the defaults. Ordering is by name or alias
+(keys by creation time, events newest first), so pagination is stable between
+requests.
+
+### Audit trail
+
+Every admin mutation writes a metadata-only event in the same transaction as
+the change: `provider.create|update|delete`, `model.create|update|delete`,
+`principal.create`, `key.create`, `key.delete`, `pricing.load`.
+
+```bash
+curl -s "$P/admin/v1/events?limit=3" -H "authorization: Bearer $ADMIN"
+```
+
+```json
+{
+  "events": [
+    {
+      "ts": "2026-07-29T09:20:01.334019Z",
+      "actor_principal_id": "b1f4c2d8e96a4f0b8d3a5c7e9f012345",
+      "action": "model.update",
+      "target_kind": "model",
+      "target_ref": "qwen-72b"
+    }
+  ],
+  "limit": 3,
+  "offset": 0
+}
+```
+
+Events are newest first and carry identifiers only, never payloads. Direct CLI
+operations (`llmproxy key create` and friends) bypass the HTTP layer and are
+not audited.
 
 ## Browser auth (`/auth`)
 
