@@ -52,7 +52,7 @@ A self-hosted OpenAI-compatible LLM proxy: one static Go binary, per-user API ke
 
 ## Documentation
 
-`docs/` is organised by reader intent: `getting-started.md` (tutorial), `install/` (deploy), `guides/` (operate), `reference/` (look up), `concepts/` (understand). Task pages are imperative and step-numbered with expected output; rationale is one sentence plus a link, and lives in `concepts/architecture.md`. The writing rules are in CONTRIBUTING.md. A new page needs an entry in `mkdocs.yml`'s nav and in the `docs/README.md` router. `mkdocs build --strict` fails on broken internal links and runs in CI on any PR touching `docs/`.
+`docs/` is organised by reader intent: `getting-started.md` (tutorial), `install/` (deploy), `guides/` (operate), `reference/` (look up), `concepts/` (understand). Task pages are imperative and step-numbered with expected output; rationale is one sentence plus a link, and lives in `concepts/architecture.md`. The writing rules are in CONTRIBUTING.md. A new page needs an entry in `mkdocs.yml`'s nav and in the `docs/README.md` router. `mkdocs build --strict` fails on broken internal links and runs in CI on any PR touching `docs/`. The site's look is the Greyhaven design system, vendored into `docs/assets/stylesheets/greyhaven.css` from the design system's tokens; re-vendor rather than hand-tune colors, and keep `mkdocs.yml`'s palette on `custom` or the theme's own colors override the stylesheet.
 
 ## Deployment files
 
