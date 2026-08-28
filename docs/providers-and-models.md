@@ -235,8 +235,9 @@ one model stay distinguishable in the summaries.
 ### Edit a binding
 
 `PATCH /admin/v1/models/{alias}` takes any of `alias`, `provider`,
-`capabilities`, `upstream_name`, `target`, `pricing`. Everything about a
-binding is editable in place: nothing here needs deleting and recreating.
+`capabilities`, `upstream_name`, `target`, `pricing`, `hidden`. Everything
+about a binding is editable in place: nothing here needs deleting and
+recreating.
 
 ```bash
 # Retarget the alias and add the completions capability
@@ -275,6 +276,24 @@ curl -s -X PATCH $P/admin/v1/models/acme%2Fsmart -H "authorization: Bearer $ADMI
   -H 'content-type: application/json' \
   -d '{"target": "", "provider": "vllm-1", "upstream_name": "Qwen/Qwen3-72B"}'
 ```
+
+### Hiding a model
+
+`hidden` takes a model off `GET /v1/models`, and so out of the Playground
+picker, without changing anything else:
+
+```bash
+curl -s -X PATCH $P/admin/v1/models/qwen-72b -H "authorization: Bearer $ADMIN" \
+  -H 'content-type: application/json' -d '{"hidden": true}'
+```
+
+This is decluttering, not access control: a hidden model still serves requests
+under its name, and anyone with a key or a session can list hidden models with
+`GET /v1/models?include_hidden=1`, which is what the Usage tab's Models subtab
+does behind its "Show hidden" toggle. The flag belongs to the row it is set on,
+so hiding a model says nothing about the names pointing at it, and an alias can
+be hidden while its target stays listed. To actually stop a model serving,
+delete the binding or disable its provider.
 
 Similarly for providers, `PATCH /admin/v1/providers/{name}` takes `enabled`,
 `base_url`, `api_key` and `remove_credential`:

@@ -27,7 +27,17 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			"'endpoint' must be one of %v", catalog.Capabilities))
 		return
 	}
-	bindings, err := s.store.ListServableBindings(r.Context())
+	// The list is public, so hidden models are only ever named to a caller who
+	// asked for them and proved who they are. Hiding is decluttering, not
+	// access control: hidden models stay callable either way.
+	includeHidden := r.URL.Query().Get("include_hidden") == "1"
+	if includeHidden {
+		if _, perr := s.authenticate(r); perr != nil {
+			writeProxyError(w, perr)
+			return
+		}
+	}
+	bindings, err := s.store.ListServableBindings(r.Context(), includeHidden)
 	if err != nil {
 		writeProxyError(w, apierr.New(500, "internal_error", "failed to list models"))
 		return
@@ -55,6 +65,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			"owned_by":     b.ProviderName,
 			"capabilities": splitCapabilitySet(b.CapabilitySet),
 			"alias_of":     aliasOf,
+			"hidden":       b.Hidden,
 		})
 	}
 	writeJSON(w, 200, map[string]any{"object": "list", "data": data})

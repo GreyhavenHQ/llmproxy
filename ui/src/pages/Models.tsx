@@ -43,7 +43,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Eye, EyeOff, Pencil, Trash2 } from 'lucide-react'
 
 // vision is declarative: it tells callers the model reads images, and gates
 // nothing. The others gate the endpoints of the same name.
@@ -388,6 +388,18 @@ export function Models() {
     }
   }
 
+  // Hiding takes the model off the list callers see. It keeps serving, so
+  // this is tidying rather than access control.
+  const setHidden = async (alias: string, hidden: boolean) => {
+    try {
+      await api.patch(`/admin/v1/models/${encodeURIComponent(alias)}`, { hidden })
+      toast.success(hidden ? `Model "${alias}" hidden` : `Model "${alias}" shown`)
+      models.reload()
+    } catch (err) {
+      toast.error(errMsg(err))
+    }
+  }
+
   const remove = async (alias: string) => {
     try {
       await api.del(`/admin/v1/models/${encodeURIComponent(alias)}`)
@@ -539,7 +551,7 @@ export function Models() {
                   <TableHead>Upstream name</TableHead>
                   <TableHead>Capabilities</TableHead>
                   <TableHead>Pricing ($/M)</TableHead>
-                  <TableHead className="w-24" />
+                  <TableHead className="w-32" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -658,7 +670,12 @@ export function Models() {
                     </TableRow>
                   ) : (
                     <TableRow key={m.alias}>
-                      <TableCell className="font-medium">{m.alias}</TableCell>
+                      <TableCell className="font-medium">
+                        <span className="flex flex-wrap items-center gap-2">
+                          {m.alias}
+                          {m.hidden && <Badge variant="muted">hidden</Badge>}
+                        </span>
+                      </TableCell>
                       <TableCell>{m.provider}</TableCell>
                       <TableCell className="font-mono text-xs">
                         {m.target ? (
@@ -685,6 +702,15 @@ export function Models() {
                         <PriceSummary model={m} />
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={m.hidden ? `Show ${m.alias}` : `Hide ${m.alias}`}
+                          title="Hidden from the model list. It still answers calls."
+                          onClick={() => setHidden(m.alias, !m.hidden)}
+                        >
+                          {m.hidden ? <EyeOff /> : <Eye />}
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon-sm"

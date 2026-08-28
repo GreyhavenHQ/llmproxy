@@ -157,19 +157,24 @@ const bindingSource = ` FROM model_binding b
 const bindingColumns = `b.id, b.alias, COALESCE(t.provider_id, b.provider_id),
 	COALESCE(t.upstream_name, b.upstream_name),
 	COALESCE(t.capability_set, b.capability_set),
-	b.origin, b.discovered_at, b.created_at, b.target_id, COALESCE(t.alias, ''), p.name`
+	b.origin, b.discovered_at, b.created_at, b.target_id, COALESCE(t.alias, ''), p.name,
+	b.hidden`
 
 func scanBinding(row interface{ Scan(...any) error }) (*ModelBinding, error) {
 	var b ModelBinding
+	// hidden is read off the row itself, not through the join: unlike routing,
+	// it is not inherited from an alias's target.
+	var hidden int64
 	err := row.Scan(&b.ID, &b.Alias, &b.ProviderID, &b.UpstreamName,
 		&b.CapabilitySet, &b.Origin, &b.DiscoveredAt, &b.CreatedAt,
-		&b.TargetID, &b.TargetAlias, &b.ProviderName)
+		&b.TargetID, &b.TargetAlias, &b.ProviderName, &hidden)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	b.Hidden = hidden != 0
 	return &b, nil
 }
 
@@ -210,10 +215,16 @@ func (s *Store) ListBindings(ctx context.Context, providerName string, limit, of
 
 // ListServableBindings returns bindings on enabled providers, for the
 // caller-facing model list. An alias is servable when its target's provider
-// is enabled, which the resolved join already accounts for.
-func (s *Store) ListServableBindings(ctx context.Context) ([]ModelBinding, error) {
+// is enabled, which the resolved join already accounts for. Hidden rows are
+// left out unless includeHidden asks for them; they stay servable either way,
+// hidden is a listing flag only.
+func (s *Store) ListServableBindings(ctx context.Context, includeHidden bool) ([]ModelBinding, error) {
+	where := ` WHERE p.enabled = 1`
+	if !includeHidden {
+		where += ` AND b.hidden = 0`
+	}
 	rows, err := s.db.QueryContext(ctx,
-		s.q(`SELECT `+bindingColumns+bindingSource+` WHERE p.enabled = 1 ORDER BY b.alias`))
+		s.q(`SELECT `+bindingColumns+bindingSource+where+` ORDER BY b.alias`))
 	if err != nil {
 		return nil, err
 	}
@@ -269,10 +280,10 @@ func (s *Store) CreateBinding(ctx context.Context, b *ModelBinding, audit *Audit
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, s.q(`
-		INSERT INTO model_binding (id, alias, provider_id, upstream_name, capability_set, origin, discovered_at, created_at, target_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+		INSERT INTO model_binding (id, alias, provider_id, upstream_name, capability_set, origin, discovered_at, created_at, target_id, hidden)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		b.ID, b.Alias, providerID, upstreamName,
-		capabilitySet, b.Origin, b.DiscoveredAt, b.CreatedAt, b.TargetID); err != nil {
+		capabilitySet, b.Origin, b.DiscoveredAt, b.CreatedAt, b.TargetID, boolInt(b.Hidden)); err != nil {
 		return err
 	}
 	if err := s.auditTx(ctx, tx, audit); err != nil {
@@ -290,8 +301,8 @@ func (s *Store) UpdateBinding(ctx context.Context, b *ModelBinding, audit *Audit
 	providerID, upstreamName, capabilitySet := ownRouting(b)
 	if _, err := tx.ExecContext(ctx, s.q(`
 		UPDATE model_binding SET alias = ?, provider_id = ?, upstream_name = ?, capability_set = ?,
-			target_id = ? WHERE id = ?`),
-		b.Alias, providerID, upstreamName, capabilitySet, b.TargetID, b.ID); err != nil {
+			target_id = ?, hidden = ? WHERE id = ?`),
+		b.Alias, providerID, upstreamName, capabilitySet, b.TargetID, boolInt(b.Hidden), b.ID); err != nil {
 		return err
 	}
 	if err := s.auditTx(ctx, tx, audit); err != nil {

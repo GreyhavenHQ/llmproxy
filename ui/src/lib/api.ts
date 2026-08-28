@@ -164,6 +164,9 @@ export interface Model {
   // rather than on this alias.
   pricing: Record<string, number>
   pricing_inherited: boolean
+  // Hidden keeps the model out of the caller-facing list. It still answers
+  // calls, and hiding one model says nothing about the aliases pointing at it.
+  hidden: boolean
 }
 
 // One time bucket of the usage series. cost is null when nothing in the
@@ -188,6 +191,9 @@ export interface CatalogModel {
   owned_by: string
   capabilities: string[]
   alias_of: string | null
+  // Only ever true on a list fetched with include_hidden=1; the plain list
+  // leaves hidden models out.
+  hidden: boolean
 }
 
 export interface DiscoveredModel {

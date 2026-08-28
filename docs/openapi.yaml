@@ -267,6 +267,12 @@ components:
           description: >
             The model this name points at, `null` when it binds a provider
             directly. An extension to the OpenAI shape.
+        hidden:
+          type: boolean
+          description: >
+            Whether the model is kept off this list. Only ever true when the
+            list was fetched with `include_hidden=1`. An extension to the
+            OpenAI shape.
 
     ModelList:
       type: object
@@ -631,7 +637,7 @@ components:
       type: object
       required:
         [alias, provider, upstream_name, capabilities, target, origin,
-         created_at, pricing, pricing_inherited]
+         created_at, pricing, pricing_inherited, hidden]
       properties:
         alias:
           type: string
@@ -662,6 +668,12 @@ components:
           description: >
             True when the price in force is not keyed on this name: inherited
             from the model it points at, or from the upstream model name.
+        hidden:
+          type: boolean
+          description: >
+            True when the model is kept out of `GET /v1/models`. It still
+            serves requests under this name. The flag is the row's own: hiding
+            a model does not hide the aliases pointing at it.
 
     ModelPricing:
       type: object
@@ -714,6 +726,10 @@ components:
           default: declared
         pricing:
           $ref: '#/components/schemas/ModelPricing'
+        hidden:
+          type: boolean
+          default: false
+          description: Bind the model but keep it off `GET /v1/models`.
 
     ModelPatchRequest:
       type: object
@@ -744,6 +760,12 @@ components:
             is rejected with `invalid_target`.
         pricing:
           $ref: '#/components/schemas/ModelPricing'
+        hidden:
+          type: boolean
+          description: >
+            Take the model off `GET /v1/models`, or put it back. Accepted on
+            an alias too, and independent of its target. The model keeps
+            serving under its name either way.
 
     Capability:
       type: string
@@ -1125,7 +1147,8 @@ paths:
       summary: List model aliases
       description: >
         OpenAI-shaped model list containing the aliases whose provider is
-        enabled, sorted by alias. Public; no API key required.
+        enabled and which are not hidden, sorted by alias. Public; no API key
+        required, unless `include_hidden` is used.
       security: []
       parameters:
         - name: endpoint
@@ -1134,6 +1157,16 @@ paths:
             Filter to aliases whose capability set contains this capability.
           schema:
             $ref: '#/components/schemas/Capability'
+        - name: include_hidden
+          in: query
+          description: >
+            Set to `1` to include hidden models, each flagged `hidden: true`.
+            Requires authentication (API key or session); 401 without one.
+            Hidden models are callable either way, so this only affects
+            listing.
+          schema:
+            type: string
+            enum: ['1']
       responses:
         '200':
           description: Model list.

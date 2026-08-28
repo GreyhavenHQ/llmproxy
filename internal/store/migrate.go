@@ -79,6 +79,7 @@ var migrations = []migration{
 		_, err = tx.ExecContext(ctx, "ALTER TABLE provider DROP COLUMN timeout_write")
 		return err
 	}},
+	addColumn("009_model_binding_hidden", "model_binding", "hidden", "INTEGER NOT NULL DEFAULT 0"),
 }
 
 // migrate applies every pending migration in order. Each runs in its own
