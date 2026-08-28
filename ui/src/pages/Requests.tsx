@@ -158,8 +158,8 @@ function AppCell({ row }: { row: RequestRow }) {
   const app = tagValue(row.tags, 'app')
   if (app) {
     return (
-      <Badge variant="tag" size="sm" className="font-mono">
-        {app}
+      <Badge variant="tag" size="sm" className="max-w-full font-mono" title={app}>
+        <span className="min-w-0 truncate">{app}</span>
       </Badge>
     )
   }
@@ -543,7 +543,7 @@ export function Requests() {
                       <TableCell>
                         <UserCell row={r} />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="max-w-44">
                         <AppCell row={r} />
                       </TableCell>
                       <TableCell
