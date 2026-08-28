@@ -142,6 +142,31 @@ quantity as unpriced and flags the event; summaries show `cost: null` and
 turns missing configuration into "free", which is exactly the failure a
 spend-accounting system exists to prevent.
 
+### Usage numbers are normalised at read time
+
+The two supported wire formats disagree about what "input tokens" counts. The
+OpenAI shape reports cached tokens as a subset of the prompt count
+(`prompt_tokens_details.cached_tokens` ⊆ `prompt_tokens`), while Anthropic
+reports cache reads and writes *outside* `input_tokens`. Summing either shape
+naively produces a number that means something different per provider.
+
+Stored quantities stay raw as reported, because pricing multiplies each unit
+by its own rate and cache reads and writes have their own rates. Every
+aggregate (`/my/usage*`, `/admin/v1/usage*`, `/stats/*`) then normalises
+`input_tokens` to the non-cached input: the OpenAI cached subset is subtracted
+back out, and the relay's `cache_creation_tokens` (fresh input billed at a
+premium) folds in while cache reads stay their own unit.
+
+So `input_tokens` always means "input processed at the full input rate" and is
+comparable across providers, and `cached_input_tokens` is always the cheap
+cache-read count on top of it. Normalising at write time instead would destroy
+the raw numbers pricing needs; normalising in each caller would let two
+dashboards disagree.
+
+An upstream that never reports `cached_tokens` shows no cached quantity.
+Absence means "not reported", never "free", for the same reason unpriced is
+not zero.
+
 ### The schema is content-free by construction
 
 This is the hard privacy guarantee: **no prompt, completion, embedding input
@@ -209,4 +234,4 @@ request starts; the relay holds no store handle, and usage is written after
 the fact, detached from the request path. Holding a pooled connection for the
 duration of a streamed response pins one connection per in-flight stream and
 collapses the pool at modest concurrency. This rule is what lets a small pool
-serve thousands of concurrent streams; see [performance.md](performance.md).
+serve thousands of concurrent streams; see [performance](../reference/performance.md).
