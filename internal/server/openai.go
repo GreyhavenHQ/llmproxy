@@ -27,16 +27,18 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			"'endpoint' must be one of %v", catalog.Capabilities))
 		return
 	}
-	// The list is public, so hidden models are only ever named to a caller who
-	// asked for them and proved who they are. Hiding is decluttering, not
-	// access control: hidden models stay callable either way.
+	// The list is public, so hidden models and prices are only ever shown to a
+	// caller who asked for them and proved who they are. Hiding is
+	// decluttering, not access control: hidden models stay callable either way.
 	includeHidden := r.URL.Query().Get("include_hidden") == "1"
-	if includeHidden {
+	includePricing := r.URL.Query().Get("include_pricing") == "1"
+	if includeHidden || includePricing {
 		if _, perr := s.authenticate(r); perr != nil {
 			writeProxyError(w, perr)
 			return
 		}
 	}
+	idx := s.pricing.Load()
 	bindings, err := s.store.ListServableBindings(r.Context(), includeHidden)
 	if err != nil {
 		writeProxyError(w, apierr.New(500, "internal_error", "failed to list models"))
@@ -58,7 +60,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		if b.TargetAlias != "" {
 			aliasOf = b.TargetAlias
 		}
-		data = append(data, map[string]any{
+		entry := map[string]any{
 			"id":           b.Alias,
 			"object":       "model",
 			"created":      created,
@@ -66,7 +68,16 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			"capabilities": splitCapabilitySet(b.CapabilitySet),
 			"alias_of":     aliasOf,
 			"hidden":       b.Hidden,
-		})
+		}
+		// Prices are what the proxy bills this model at, per million units, so
+		// a client can show a request's cost without a second call. Units with
+		// no price are left out: unpriced is not zero.
+		if includePricing {
+			prices, inherited := modelPricing(&b, idx)
+			entry["pricing"] = prices
+			entry["pricing_inherited"] = inherited
+		}
+		data = append(data, entry)
 	}
 	writeJSON(w, 200, map[string]any{"object": "list", "data": data})
 }

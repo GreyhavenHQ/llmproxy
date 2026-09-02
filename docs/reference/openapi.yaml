@@ -273,6 +273,19 @@ components:
             Whether the model is kept off this list. Only ever true when the
             list was fetched with `include_hidden=1`. An extension to the
             OpenAI shape.
+        pricing:
+          $ref: '#/components/schemas/ModelPricing'
+          description: >
+            Prices in force for this model, per million units, present only
+            when the list was fetched with `include_pricing=1`. Units with no
+            price are left out: unpriced is not zero. An extension to the
+            OpenAI shape.
+        pricing_inherited:
+          type: boolean
+          description: >
+            True when a price in force is keyed on another name (the model
+            this one points at, or the upstream name) rather than this one.
+            Present only with `include_pricing=1`.
 
     ModelList:
       type: object
@@ -1164,6 +1177,16 @@ paths:
             Requires authentication (API key or session); 401 without one.
             Hidden models are callable either way, so this only affects
             listing.
+          schema:
+            type: string
+            enum: ['1']
+        - name: include_pricing
+          in: query
+          description: >
+            Set to `1` to add `pricing` and `pricing_inherited` to every
+            entry: the prices the proxy bills this model at, per million
+            units, resolved the way the data plane resolves them. Requires
+            authentication (API key or session); 401 without one.
           schema:
             type: string
             enum: ['1']

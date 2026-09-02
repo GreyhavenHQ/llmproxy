@@ -8,6 +8,7 @@ Examples assume:
 ```bash
 P=http://127.0.0.1:4000
 ADMIN=lp_...     # an admin key
+KEY=lp_...       # any key
 ```
 
 ## Price one model
@@ -97,6 +98,31 @@ Read the active feed with `GET /admin/v1/pricing`; it returns the version
 
 `LLMPROXY_PRICING_FILE` loads a feed at startup, and stores it only when its
 `version` differs from the active one.
+
+## Let clients read the prices
+
+`GET /v1/models?include_pricing=1` returns the prices with the model list, so
+a client that shows spend (OpenCode, or any tool that prices its own requests)
+reads them from the proxy instead of carrying its own table. It needs an API
+key or a session; the plain list stays public and unpriced.
+
+```bash
+curl -s "$P/v1/models?include_pricing=1" -H "authorization: Bearer $KEY"
+```
+
+```json
+{
+  "id": "qwen-72b",
+  "object": "model",
+  "owned_by": "vllm-1",
+  "pricing": {"input_tokens": 0.4, "output_tokens": 1.2},
+  "pricing_inherited": false
+}
+```
+
+Prices are per million units and resolved the way the data plane resolves
+them, so what a client multiplies by matches what the proxy bills. A model
+with no price for a unit simply has no entry for it.
 
 ## Unpriced is not free
 

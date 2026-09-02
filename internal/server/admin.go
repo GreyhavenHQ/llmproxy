@@ -364,12 +364,11 @@ func perMillion(price float64) float64 {
 	return math.Round(price*1_000_000*1e6) / 1e6
 }
 
-// modelView renders a binding with the prices that apply to it. Prices live in
-// the versioned feed keyed on (model, unit); the model can be priced under its
-// alias or, inherited, under the upstream name it points at.
-func modelView(b *store.ModelBinding, idx *pricing.Index) map[string]any {
-	caps := strings.Split(b.CapabilitySet, ",")
-	sort.Strings(caps)
+// modelPricing returns the prices that apply to a binding, per million units,
+// and whether any of them is inherited. Prices live in the versioned feed keyed
+// on (model, unit); the model can be priced under its alias or, inherited,
+// under the name it points at or the upstream name.
+func modelPricing(b *store.ModelBinding, idx *pricing.Index) (map[string]float64, bool) {
 	prices := make(map[string]float64)
 	inherited := false
 	for unit := range pricing.ValidUnits {
@@ -382,6 +381,14 @@ func modelView(b *store.ModelBinding, idx *pricing.Index) map[string]any {
 			inherited = true
 		}
 	}
+	return prices, inherited
+}
+
+// modelView renders a binding with the prices that apply to it.
+func modelView(b *store.ModelBinding, idx *pricing.Index) map[string]any {
+	caps := strings.Split(b.CapabilitySet, ",")
+	sort.Strings(caps)
+	prices, inherited := modelPricing(b, idx)
 	view := map[string]any{
 		"alias":             b.Alias,
 		"provider":          b.ProviderName,
