@@ -204,6 +204,7 @@ func (s *Server) proxyCompletion(w http.ResponseWriter, r *http.Request, auth *A
 
 	w.Header().Set("x-llmproxy-provider", route.ProviderName)
 	w.Header().Set("x-llmproxy-model", route.UpstreamName)
+	s.observeRateLimit(w, resp, route)
 
 	if !stream || resp.StatusCode >= 400 {
 		s.relayUnary(w, auth, route, endpoint, resp, stream, started)

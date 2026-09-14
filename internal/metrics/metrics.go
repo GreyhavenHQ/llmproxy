@@ -15,10 +15,11 @@ import (
 type Metrics struct {
 	mu       sync.Mutex
 	counters map[string]float64
+	gauges   map[string]float64
 }
 
 func New() *Metrics {
-	return &Metrics{counters: make(map[string]float64)}
+	return &Metrics{counters: make(map[string]float64), gauges: make(map[string]float64)}
 }
 
 func key(name string, labels [][2]string) string {
@@ -63,14 +64,27 @@ func (m *Metrics) ObserveUnits(provider, alias, unit string, quantity float64, p
 	}
 }
 
+func (m *Metrics) Set(name string, labels [][2]string, value float64) {
+	k := key(name, labels)
+	m.mu.Lock()
+	m.gauges[k] = value
+	m.mu.Unlock()
+}
+
 func (m *Metrics) Render() string {
 	m.mu.Lock()
-	keys := make([]string, 0, len(m.counters))
+	keys := make([]string, 0, len(m.counters)+len(m.gauges))
 	for k := range m.counters {
 		keys = append(keys, k)
 	}
-	values := make(map[string]float64, len(m.counters))
+	for k := range m.gauges {
+		keys = append(keys, k)
+	}
+	values := make(map[string]float64, len(m.counters)+len(m.gauges))
 	for k, v := range m.counters {
+		values[k] = v
+	}
+	for k, v := range m.gauges {
 		values[k] = v
 	}
 	m.mu.Unlock()
