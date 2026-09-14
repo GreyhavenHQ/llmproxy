@@ -265,6 +265,72 @@ func TestStatsRateLimitSeriesRequiresProvider(t *testing.T) {
 	}
 }
 
+func TestAdminProviderRateLimitHeadersCreateAndPatch(t *testing.T) {
+	e := newEnv(t)
+
+	resp, body := e.request(t, "POST", "/admin/v1/providers", e.adminKey, map[string]any{
+		"name":     "rl-test",
+		"base_url": "https://example.com/v1",
+		"rate_limit_headers": map[string]string{
+			"limit_requests":     "x-ratelimit-limit-requests",
+			"remaining_requests": "x-ratelimit-remaining-requests",
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("expected 201, got %d: %s", resp.StatusCode, body)
+	}
+	result := decode(t, body)
+	rlh, ok := result["rate_limit_headers"].(map[string]any)
+	if !ok || len(rlh) != 2 {
+		t.Fatalf("expected rate_limit_headers map with 2 entries, got %v", result["rate_limit_headers"])
+	}
+
+	resp, body = e.request(t, "PATCH", "/admin/v1/providers/rl-test", e.adminKey, map[string]any{
+		"rate_limit_headers": map[string]string{
+			"limit_tokens":     "x-ratelimit-limit-tokens",
+			"remaining_tokens": "x-ratelimit-remaining-tokens",
+		},
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	result = decode(t, body)
+	rlh, ok = result["rate_limit_headers"].(map[string]any)
+	if !ok || len(rlh) != 2 {
+		t.Fatalf("expected rate_limit_headers map with 2 entries after patch, got %v", result["rate_limit_headers"])
+	}
+	if rlh["limit_tokens"] != "x-ratelimit-limit-tokens" {
+		t.Errorf("expected limit_tokens header, got %v", rlh["limit_tokens"])
+	}
+
+	// Clear with empty object.
+	resp, body = e.request(t, "PATCH", "/admin/v1/providers/rl-test", e.adminKey, map[string]any{
+		"rate_limit_headers": map[string]string{},
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	result = decode(t, body)
+	if result["rate_limit_headers"] != nil {
+		t.Errorf("expected nil rate_limit_headers after clear, got %v", result["rate_limit_headers"])
+	}
+}
+
+func TestAdminProviderRateLimitHeadersInvalidKey(t *testing.T) {
+	e := newEnv(t)
+
+	resp, _ := e.request(t, "POST", "/admin/v1/providers", e.adminKey, map[string]any{
+		"name":     "rl-bad",
+		"base_url": "https://example.com/v1",
+		"rate_limit_headers": map[string]string{
+			"bogus_key": "x-whatever",
+		},
+	})
+	if resp.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
 func TestRateLimitGaugesExported(t *testing.T) {
 	e := newRateLimitEnv(t)
 	e.chat(t, false)

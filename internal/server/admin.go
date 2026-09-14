@@ -24,6 +24,23 @@ import (
 // usage. Every mutation writes a metadata-only admin event in the same
 // transaction. No endpoint ever returns a stored credential or key hash.
 
+func validateRateLimitHeaders(m map[string]string) *apierr.ProxyError {
+	for key := range m {
+		valid := false
+		for _, k := range catalog.ValidRateLimitKeys {
+			if k == key {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return apierr.Newf(400, "invalid_rate_limit_key",
+				"unknown rate limit key '%s'; valid: %v", key, catalog.ValidRateLimitKeys)
+		}
+	}
+	return nil
+}
+
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 var aliasRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 
@@ -75,21 +92,27 @@ func providerView(p *store.Provider, overrides map[string]string) map[string]any
 	if overrides != nil {
 		view["endpoints"] = overrides
 	}
+	if p.RateLimitHeaders != "" {
+		view["rate_limit_headers"] = catalog.ParseRateLimitHeaders(p.RateLimitHeaders)
+	} else {
+		view["rate_limit_headers"] = nil
+	}
 	return view
 }
 
 func (s *Server) handleProviderCreate(w http.ResponseWriter, r *http.Request, auth *Auth) {
 	body := struct {
-		Name           string            `json:"name"`
-		WireFormat     string            `json:"wire_format"`
-		BaseURL        string            `json:"base_url"`
-		APIKey         string            `json:"api_key"`
-		VerifyTLS      *bool             `json:"verify_tls"`
-		CAPEM          string            `json:"ca_pem"`
-		TimeoutConnect float64           `json:"timeout_connect"`
-		TimeoutRead    float64           `json:"timeout_read"`
-		MaxConcurrency *int64            `json:"max_concurrency"`
-		Endpoints      map[string]string `json:"endpoints"`
+		Name              string             `json:"name"`
+		WireFormat        string             `json:"wire_format"`
+		BaseURL           string             `json:"base_url"`
+		APIKey            string             `json:"api_key"`
+		VerifyTLS         *bool              `json:"verify_tls"`
+		CAPEM             string             `json:"ca_pem"`
+		TimeoutConnect    float64            `json:"timeout_connect"`
+		TimeoutRead       float64            `json:"timeout_read"`
+		MaxConcurrency    *int64             `json:"max_concurrency"`
+		Endpoints         map[string]string  `json:"endpoints"`
+		RateLimitHeaders  map[string]string  `json:"rate_limit_headers"`
 	}{WireFormat: "openai", TimeoutConnect: 10, TimeoutRead: 300}
 	if perr := readJSONBody(r, 1<<20, &body); perr != nil {
 		writeProxyError(w, perr)
@@ -130,14 +153,19 @@ func (s *Server) handleProviderCreate(w http.ResponseWriter, r *http.Request, au
 		writeProxyError(w, apierr.Newf(409, "provider_exists", "provider '%s' already exists", body.Name))
 		return
 	}
+	if perr := validateRateLimitHeaders(body.RateLimitHeaders); perr != nil {
+		writeProxyError(w, perr)
+		return
+	}
 	p := &store.Provider{
-		Name:           body.Name,
-		WireFormat:     body.WireFormat,
-		BaseURL:        strings.TrimRight(body.BaseURL, "/"),
-		VerifyTLS:      body.VerifyTLS == nil || *body.VerifyTLS,
-		TimeoutConnect: body.TimeoutConnect,
-		TimeoutRead:    body.TimeoutRead,
-		Enabled:        true,
+		Name:             body.Name,
+		WireFormat:       body.WireFormat,
+		BaseURL:          strings.TrimRight(body.BaseURL, "/"),
+		VerifyTLS:        body.VerifyTLS == nil || *body.VerifyTLS,
+		TimeoutConnect:   body.TimeoutConnect,
+		TimeoutRead:      body.TimeoutRead,
+		Enabled:          true,
+		RateLimitHeaders: catalog.FormatRateLimitHeaders(body.RateLimitHeaders),
 	}
 	if body.CAPEM != "" {
 		p.CAPEM = sql.NullString{String: body.CAPEM, Valid: true}
@@ -205,15 +233,16 @@ func (s *Server) handleProviderGet(w http.ResponseWriter, r *http.Request, auth 
 
 func (s *Server) handleProviderPatch(w http.ResponseWriter, r *http.Request, auth *Auth) {
 	var body struct {
-		Enabled          *bool    `json:"enabled"`
-		BaseURL          *string  `json:"base_url"`
-		APIKey           *string  `json:"api_key"`
-		RemoveCredential bool     `json:"remove_credential"`
-		VerifyTLS        *bool    `json:"verify_tls"`
-		TimeoutConnect   *float64 `json:"timeout_connect"`
-		TimeoutRead      *float64 `json:"timeout_read"`
+		Enabled          *bool              `json:"enabled"`
+		BaseURL          *string            `json:"base_url"`
+		APIKey           *string            `json:"api_key"`
+		RemoveCredential bool               `json:"remove_credential"`
+		VerifyTLS        *bool              `json:"verify_tls"`
+		TimeoutConnect   *float64           `json:"timeout_connect"`
+		TimeoutRead      *float64           `json:"timeout_read"`
 		// MaxConcurrency zero or negative clears the cap back to unlimited.
-		MaxConcurrency *int64 `json:"max_concurrency"`
+		MaxConcurrency   *int64             `json:"max_concurrency"`
+		RateLimitHeaders *map[string]string `json:"rate_limit_headers"`
 	}
 	if perr := readJSONBody(r, 1<<20, &body); perr != nil {
 		writeProxyError(w, perr)
@@ -260,6 +289,13 @@ func (s *Server) handleProviderPatch(w http.ResponseWriter, r *http.Request, aut
 			return
 		}
 		provider.CredentialCiphertext = sql.NullString{String: encrypted, Valid: true}
+	}
+	if body.RateLimitHeaders != nil {
+		if perr := validateRateLimitHeaders(*body.RateLimitHeaders); perr != nil {
+			writeProxyError(w, perr)
+			return
+		}
+		provider.RateLimitHeaders = catalog.FormatRateLimitHeaders(*body.RateLimitHeaders)
 	}
 	audit := &store.Audit{Actor: auth.PrincipalID, Action: "provider.update", TargetKind: "provider", TargetRef: provider.Name}
 	if err := s.store.UpdateProvider(r.Context(), provider, audit); err != nil {
