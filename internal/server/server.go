@@ -308,6 +308,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /stats/requests", s.withAuth(s.handleStatsRequests))
 	mux.Handle("GET /stats/requests/facets", s.withAuth(s.handleStatsFacets))
 	mux.Handle("GET /stats/errors", s.withAuth(s.handleStatsErrors))
+	mux.Handle("GET /stats/rate-limits", s.withAuth(s.handleStatsRateLimits))
+	mux.Handle("GET /stats/rate-limits/series", s.withAuth(s.handleStatsRateLimitSeries))
 
 	mux.Handle("POST /admin/v1/providers", s.withAdmin(s.handleProviderCreate))
 	mux.Handle("GET /admin/v1/providers", s.withAdmin(s.handleProviderList))

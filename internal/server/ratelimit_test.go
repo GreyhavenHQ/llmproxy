@@ -194,6 +194,77 @@ func TestRateLimitNoHeadersWithoutConfig(t *testing.T) {
 	}
 }
 
+func TestStatsRateLimitsEndpoint(t *testing.T) {
+	e := newRateLimitEnv(t)
+	e.chat(t, false)
+
+	req, _ := http.NewRequest("GET", e.proxy.URL+"/stats/rate-limits", nil)
+	req.Header.Set("Authorization", "Bearer "+e.key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	var result map[string]any
+	json.Unmarshal(body, &result)
+	limits, ok := result["rate_limits"].([]any)
+	if !ok || len(limits) == 0 {
+		t.Fatalf("expected non-empty rate_limits, got %s", body)
+	}
+	entry := limits[0].(map[string]any)
+	if entry["provider"] != "rl-upstream" {
+		t.Errorf("expected provider rl-upstream, got %v", entry["provider"])
+	}
+	if entry["remaining_requests"].(float64) != 943 {
+		t.Errorf("expected remaining_requests 943, got %v", entry["remaining_requests"])
+	}
+}
+
+func TestStatsRateLimitSeriesEndpoint(t *testing.T) {
+	e := newRateLimitEnv(t)
+	e.chat(t, false)
+	e.srv.Drain()
+
+	req, _ := http.NewRequest("GET", e.proxy.URL+"/stats/rate-limits/series?provider=rl-upstream", nil)
+	req.Header.Set("Authorization", "Bearer "+e.key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	var result map[string]any
+	json.Unmarshal(body, &result)
+	if result["provider"] != "rl-upstream" {
+		t.Errorf("expected provider rl-upstream, got %v", result["provider"])
+	}
+}
+
+func TestStatsRateLimitSeriesRequiresProvider(t *testing.T) {
+	e := newRateLimitEnv(t)
+
+	req, _ := http.NewRequest("GET", e.proxy.URL+"/stats/rate-limits/series", nil)
+	req.Header.Set("Authorization", "Bearer "+e.key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
 func TestRateLimitGaugesExported(t *testing.T) {
 	e := newRateLimitEnv(t)
 	e.chat(t, false)
