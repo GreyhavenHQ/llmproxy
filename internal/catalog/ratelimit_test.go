@@ -20,9 +20,9 @@ func TestParseRateLimitHeaders(t *testing.T) {
 			}},
 		{"with reset headers", "limit_requests:x-ratelimit-limit-requests,reset_requests:x-ratelimit-reset-requests,reset_tokens:x-ratelimit-reset-tokens",
 			map[string]string{
-				"limit_requests":  "x-ratelimit-limit-requests",
-				"reset_requests":  "x-ratelimit-reset-requests",
-				"reset_tokens":    "x-ratelimit-reset-tokens",
+				"limit_requests": "x-ratelimit-limit-requests",
+				"reset_requests": "x-ratelimit-reset-requests",
+				"reset_tokens":   "x-ratelimit-reset-tokens",
 			}},
 		{"invalid key ignored", "limit_requests:x-foo,bogus_key:x-bar",
 			map[string]string{"limit_requests": "x-foo"}},

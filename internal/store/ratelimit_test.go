@@ -34,16 +34,16 @@ func TestRateLimitSampleInsertAndLatest(t *testing.T) {
 	}
 
 	s1 := &store.RateLimitSample{
-		ProviderID:        p.ID,
-		Bucket:            "2026-09-14T10:00",
-		ObservedAt:        "2026-09-14T10:00:45.000000Z",
-		Observations:      12,
-		LimitRequests:     sql.NullInt64{Int64: 1000, Valid: true},
-		RemainingRequests: sql.NullInt64{Int64: 900, Valid: true},
+		ProviderID:           p.ID,
+		Bucket:               "2026-09-14T10:00",
+		ObservedAt:           "2026-09-14T10:00:45.000000Z",
+		Observations:         12,
+		LimitRequests:        sql.NullInt64{Int64: 1000, Valid: true},
+		RemainingRequests:    sql.NullInt64{Int64: 900, Valid: true},
 		MinRemainingRequests: sql.NullInt64{Int64: 850, Valid: true},
-		LimitTokens:       sql.NullInt64{Int64: 2000000, Valid: true},
-		RemainingTokens:   sql.NullInt64{Int64: 1500000, Valid: true},
-		MinRemainingTokens: sql.NullInt64{Int64: 1400000, Valid: true},
+		LimitTokens:          sql.NullInt64{Int64: 2000000, Valid: true},
+		RemainingTokens:      sql.NullInt64{Int64: 1500000, Valid: true},
+		MinRemainingTokens:   sql.NullInt64{Int64: 1400000, Valid: true},
 	}
 	if err := st.InsertRateLimitSample(ctx, s1); err != nil {
 		t.Fatal(err)
@@ -53,12 +53,12 @@ func TestRateLimitSampleInsertAndLatest(t *testing.T) {
 	}
 
 	s2 := &store.RateLimitSample{
-		ProviderID:        p.ID,
-		Bucket:            "2026-09-14T10:01",
-		ObservedAt:        "2026-09-14T10:01:30.000000Z",
-		Observations:      5,
-		LimitRequests:     sql.NullInt64{Int64: 1000, Valid: true},
-		RemainingRequests: sql.NullInt64{Int64: 800, Valid: true},
+		ProviderID:           p.ID,
+		Bucket:               "2026-09-14T10:01",
+		ObservedAt:           "2026-09-14T10:01:30.000000Z",
+		Observations:         5,
+		LimitRequests:        sql.NullInt64{Int64: 1000, Valid: true},
+		RemainingRequests:    sql.NullInt64{Int64: 800, Valid: true},
 		MinRemainingRequests: sql.NullInt64{Int64: 780, Valid: true},
 	}
 	if err := st.InsertRateLimitSample(ctx, s2); err != nil {
@@ -95,10 +95,10 @@ func TestRateLimitSeries(t *testing.T) {
 	buckets := []string{"2026-09-14T08:00", "2026-09-14T09:00", "2026-09-14T10:00"}
 	for _, b := range buckets {
 		s := &store.RateLimitSample{
-			ProviderID:   p.ID,
-			Bucket:       b,
-			ObservedAt:   b + ":30.000000Z",
-			Observations: 1,
+			ProviderID:    p.ID,
+			Bucket:        b,
+			ObservedAt:    b + ":30.000000Z",
+			Observations:  1,
 			LimitRequests: sql.NullInt64{Int64: 1000, Valid: true},
 		}
 		if err := st.InsertRateLimitSample(ctx, s); err != nil {

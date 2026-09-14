@@ -102,17 +102,17 @@ func providerView(p *store.Provider, overrides map[string]string) map[string]any
 
 func (s *Server) handleProviderCreate(w http.ResponseWriter, r *http.Request, auth *Auth) {
 	body := struct {
-		Name              string             `json:"name"`
-		WireFormat        string             `json:"wire_format"`
-		BaseURL           string             `json:"base_url"`
-		APIKey            string             `json:"api_key"`
-		VerifyTLS         *bool              `json:"verify_tls"`
-		CAPEM             string             `json:"ca_pem"`
-		TimeoutConnect    float64            `json:"timeout_connect"`
-		TimeoutRead       float64            `json:"timeout_read"`
-		MaxConcurrency    *int64             `json:"max_concurrency"`
-		Endpoints         map[string]string  `json:"endpoints"`
-		RateLimitHeaders  map[string]string  `json:"rate_limit_headers"`
+		Name             string            `json:"name"`
+		WireFormat       string            `json:"wire_format"`
+		BaseURL          string            `json:"base_url"`
+		APIKey           string            `json:"api_key"`
+		VerifyTLS        *bool             `json:"verify_tls"`
+		CAPEM            string            `json:"ca_pem"`
+		TimeoutConnect   float64           `json:"timeout_connect"`
+		TimeoutRead      float64           `json:"timeout_read"`
+		MaxConcurrency   *int64            `json:"max_concurrency"`
+		Endpoints        map[string]string `json:"endpoints"`
+		RateLimitHeaders map[string]string `json:"rate_limit_headers"`
 	}{WireFormat: "openai", TimeoutConnect: 10, TimeoutRead: 300}
 	if perr := readJSONBody(r, 1<<20, &body); perr != nil {
 		writeProxyError(w, perr)
@@ -233,13 +233,13 @@ func (s *Server) handleProviderGet(w http.ResponseWriter, r *http.Request, auth 
 
 func (s *Server) handleProviderPatch(w http.ResponseWriter, r *http.Request, auth *Auth) {
 	var body struct {
-		Enabled          *bool              `json:"enabled"`
-		BaseURL          *string            `json:"base_url"`
-		APIKey           *string            `json:"api_key"`
-		RemoveCredential bool               `json:"remove_credential"`
-		VerifyTLS        *bool              `json:"verify_tls"`
-		TimeoutConnect   *float64           `json:"timeout_connect"`
-		TimeoutRead      *float64           `json:"timeout_read"`
+		Enabled          *bool    `json:"enabled"`
+		BaseURL          *string  `json:"base_url"`
+		APIKey           *string  `json:"api_key"`
+		RemoveCredential bool     `json:"remove_credential"`
+		VerifyTLS        *bool    `json:"verify_tls"`
+		TimeoutConnect   *float64 `json:"timeout_connect"`
+		TimeoutRead      *float64 `json:"timeout_read"`
 		// MaxConcurrency zero or negative clears the cap back to unlimited.
 		MaxConcurrency   *int64             `json:"max_concurrency"`
 		RateLimitHeaders *map[string]string `json:"rate_limit_headers"`

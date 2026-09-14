@@ -55,7 +55,7 @@ func newRateLimitEnv(t *testing.T) *rlEnv {
 				}},
 				"usage": map[string]any{"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
 			})
-			w.Write(body)
+			_, _ = w.Write(body)
 			return
 		}
 
@@ -104,7 +104,7 @@ func newRateLimitEnv(t *testing.T) *rlEnv {
 	provider := &store.Provider{
 		Name: "rl-upstream", WireFormat: "openai", BaseURL: upstream.URL + "/v1",
 		CredentialCiphertext: sql.NullString{String: encrypted, Valid: true},
-		VerifyTLS: true, TimeoutConnect: 5, TimeoutRead: 30, Enabled: true,
+		VerifyTLS:            true, TimeoutConnect: 5, TimeoutRead: 30, Enabled: true,
 		RateLimitHeaders: rlHeaders,
 	}
 	if err := st.CreateProvider(ctx, provider, nil, nil); err != nil {
@@ -152,7 +152,7 @@ func (e *rlEnv) chat(t *testing.T, stream bool) *http.Response {
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.ReadAll(resp.Body)
+	_, _ = io.ReadAll(resp.Body)
 	resp.Body.Close()
 	return resp
 }
@@ -211,7 +211,9 @@ func TestStatsRateLimitsEndpoint(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 	}
 	var result map[string]any
-	json.Unmarshal(body, &result)
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatal(err)
+	}
 	limits, ok := result["rate_limits"].([]any)
 	if !ok || len(limits) == 0 {
 		t.Fatalf("expected non-empty rate_limits, got %s", body)
@@ -243,7 +245,9 @@ func TestStatsRateLimitSeriesEndpoint(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 	}
 	var result map[string]any
-	json.Unmarshal(body, &result)
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatal(err)
+	}
 	if result["provider"] != "rl-upstream" {
 		t.Errorf("expected provider rl-upstream, got %v", result["provider"])
 	}
