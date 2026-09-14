@@ -9,14 +9,14 @@ import (
 )
 
 const providerColumns = `id, name, wire_format, base_url, credential_ciphertext, verify_tls,
-	ca_pem, timeout_connect, timeout_read, max_concurrency, enabled, created_at`
+	ca_pem, timeout_connect, timeout_read, max_concurrency, enabled, created_at, rate_limit_headers`
 
 func scanProvider(row interface{ Scan(...any) error }) (*Provider, error) {
 	var p Provider
 	var verifyTLS, enabled int64
 	err := row.Scan(&p.ID, &p.Name, &p.WireFormat, &p.BaseURL, &p.CredentialCiphertext,
 		&verifyTLS, &p.CAPEM, &p.TimeoutConnect, &p.TimeoutRead,
-		&p.MaxConcurrency, &enabled, &p.CreatedAt)
+		&p.MaxConcurrency, &enabled, &p.CreatedAt, &p.RateLimitHeaders)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -62,11 +62,11 @@ func (s *Store) CreateProvider(ctx context.Context, p *Provider, overrides map[s
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, s.q(`
 		INSERT INTO provider (id, name, wire_format, base_url, credential_ciphertext, verify_tls,
-			ca_pem, timeout_connect, timeout_read, max_concurrency, enabled, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			ca_pem, timeout_connect, timeout_read, max_concurrency, enabled, created_at, rate_limit_headers)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		p.ID, p.Name, p.WireFormat, p.BaseURL, p.CredentialCiphertext, boolInt(p.VerifyTLS),
 		p.CAPEM, p.TimeoutConnect, p.TimeoutRead, p.MaxConcurrency,
-		boolInt(p.Enabled), p.CreatedAt); err != nil {
+		boolInt(p.Enabled), p.CreatedAt, p.RateLimitHeaders); err != nil {
 		return err
 	}
 	for endpoint, url := range overrides {
@@ -91,10 +91,12 @@ func (s *Store) UpdateProvider(ctx context.Context, p *Provider, audit *Audit) e
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, s.q(`
 		UPDATE provider SET base_url = ?, credential_ciphertext = ?, enabled = ?,
-			verify_tls = ?, timeout_connect = ?, timeout_read = ?, max_concurrency = ?
+			verify_tls = ?, timeout_connect = ?, timeout_read = ?, max_concurrency = ?,
+			rate_limit_headers = ?
 		WHERE id = ?`),
 		p.BaseURL, p.CredentialCiphertext, boolInt(p.Enabled),
-		boolInt(p.VerifyTLS), p.TimeoutConnect, p.TimeoutRead, p.MaxConcurrency, p.ID); err != nil {
+		boolInt(p.VerifyTLS), p.TimeoutConnect, p.TimeoutRead, p.MaxConcurrency,
+		p.RateLimitHeaders, p.ID); err != nil {
 		return err
 	}
 	if err := s.auditTx(ctx, tx, audit); err != nil {
@@ -115,6 +117,7 @@ func (s *Store) DeleteProvider(ctx context.Context, providerID string, audit *Au
 		`DELETE FROM model_binding WHERE target_id IN (SELECT id FROM model_binding WHERE provider_id = ?)`,
 		`DELETE FROM model_binding WHERE provider_id = ?`,
 		`DELETE FROM provider_endpoint WHERE provider_id = ?`,
+		`DELETE FROM provider_rate_limit_sample WHERE provider_id = ?`,
 		`DELETE FROM provider WHERE id = ?`,
 	} {
 		if _, err := tx.ExecContext(ctx, s.q(stmt), providerID); err != nil {

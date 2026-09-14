@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/greyhavenhq/llmproxy/internal/apierr"
 	"github.com/greyhavenhq/llmproxy/internal/store"
@@ -135,6 +136,118 @@ func (s *Server) handleStatsSummary(w http.ResponseWriter, r *http.Request, auth
 
 func (s *Server) handleStatsRequests(w http.ResponseWriter, r *http.Request, auth *Auth) {
 	s.serveRequestLog(w, r)
+}
+
+// handleStatsRateLimits returns the current rate-limit snapshot for every
+// configured provider: the latest in-memory reading plus a stale flag.
+func (s *Server) handleStatsRateLimits(w http.ResponseWriter, r *http.Request, auth *Auth) {
+	snaps := s.rateLimits.Snapshots()
+	staleAfter := 5 * time.Minute
+
+	views := make([]map[string]any, 0, len(snaps))
+	for _, snap := range snaps {
+		age := time.Since(snap.ObservedAt)
+		view := map[string]any{
+			"provider":    snap.ProviderName,
+			"provider_id": snap.ProviderID,
+			"observed_at": snap.ObservedAt.UTC().Format(time.RFC3339),
+			"stale":       age > staleAfter,
+		}
+		if snap.LimitRequests != nil {
+			view["limit_requests"] = *snap.LimitRequests
+		}
+		if snap.RemainingRequests != nil {
+			view["remaining_requests"] = *snap.RemainingRequests
+		}
+		if snap.MinRemRequests != nil {
+			view["min_remaining_requests"] = *snap.MinRemRequests
+		}
+		if snap.LimitTokens != nil {
+			view["limit_tokens"] = *snap.LimitTokens
+		}
+		if snap.RemainingTokens != nil {
+			view["remaining_tokens"] = *snap.RemainingTokens
+		}
+		if snap.MinRemTokens != nil {
+			view["min_remaining_tokens"] = *snap.MinRemTokens
+		}
+		if snap.ResetRequestsAt != "" {
+			view["reset_requests_at"] = snap.ResetRequestsAt
+		}
+		if snap.ResetTokensAt != "" {
+			view["reset_tokens_at"] = snap.ResetTokensAt
+		}
+		views = append(views, view)
+	}
+	writeJSON(w, 200, map[string]any{"rate_limits": views})
+}
+
+// handleStatsRateLimitSeries returns stored minute-bucket samples for one
+// provider over a time range.
+func (s *Server) handleStatsRateLimitSeries(w http.ResponseWriter, r *http.Request, auth *Auth) {
+	providerName := r.URL.Query().Get("provider")
+	if providerName == "" {
+		writeProxyError(w, apierr.New(400, "missing_provider", "'provider' query parameter is required"))
+		return
+	}
+	provider, err := s.store.GetProviderByName(r.Context(), providerName)
+	if err != nil {
+		internalErr(w, "failed to load provider")
+		return
+	}
+	if provider == nil {
+		writeProxyError(w, apierr.Newf(404, "provider_not_found", "no provider named '%s'", providerName))
+		return
+	}
+	since, perr := parseTimeParam(r.URL.Query().Get("since"), "since")
+	if perr != nil {
+		writeProxyError(w, perr)
+		return
+	}
+	until, perr := parseTimeParam(r.URL.Query().Get("until"), "until")
+	if perr != nil {
+		writeProxyError(w, perr)
+		return
+	}
+	rows, err := s.store.RateLimitSeries(r.Context(), provider.ID, since, until)
+	if err != nil {
+		internalErr(w, "failed to load rate-limit series")
+		return
+	}
+	views := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		view := map[string]any{
+			"bucket":       row.Bucket,
+			"observed_at":  row.ObservedAt,
+			"observations": row.Observations,
+		}
+		if row.LimitRequests.Valid {
+			view["limit_requests"] = row.LimitRequests.Int64
+		}
+		if row.RemainingRequests.Valid {
+			view["remaining_requests"] = row.RemainingRequests.Int64
+		}
+		if row.MinRemainingRequests.Valid {
+			view["min_remaining_requests"] = row.MinRemainingRequests.Int64
+		}
+		if row.LimitTokens.Valid {
+			view["limit_tokens"] = row.LimitTokens.Int64
+		}
+		if row.RemainingTokens.Valid {
+			view["remaining_tokens"] = row.RemainingTokens.Int64
+		}
+		if row.MinRemainingTokens.Valid {
+			view["min_remaining_tokens"] = row.MinRemainingTokens.Int64
+		}
+		if row.ResetRequestsAt.Valid {
+			view["reset_requests_at"] = row.ResetRequestsAt.String
+		}
+		if row.ResetTokensAt.Valid {
+			view["reset_tokens_at"] = row.ResetTokensAt.String
+		}
+		views = append(views, view)
+	}
+	writeJSON(w, 200, map[string]any{"provider": providerName, "series": views})
 }
 
 // handleStatsFacets returns the distinct filter values present in a window,

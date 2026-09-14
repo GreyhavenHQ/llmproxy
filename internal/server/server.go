@@ -57,6 +57,8 @@ type Server struct {
 	adminPassword string
 	localAdminID  string
 
+	rateLimits *RateLimitTracker
+
 	// wg tracks detached usage-recording goroutines so shutdown can drain them.
 	wg sync.WaitGroup
 }
@@ -69,6 +71,7 @@ func New(cfg config.Config, st *store.Store, secret []byte) *Server {
 		catalog:      catalog.New(st, secret, cfg.CatalogTTL),
 		pool:         upstream.New(),
 		metrics:      metrics.New(),
+		rateLimits:   NewRateLimitTracker(),
 		sessionKey:   deriveSessionKey(secret),
 		cookieSecure: strings.HasPrefix(cfg.OIDCRedirectURL, "https://"),
 		publicHost:   hostOf(cfg.OIDCRedirectURL),
@@ -155,8 +158,14 @@ func (s *Server) Bootstrap(ctx context.Context) error {
 	return nil
 }
 
-// Drain waits for detached accounting goroutines (used by shutdown and tests).
-func (s *Server) Drain() { s.wg.Wait() }
+// Drain flushes open rate-limit buckets and waits for detached accounting
+// goroutines (used by shutdown and tests).
+func (s *Server) Drain() {
+	for _, sample := range s.rateLimits.Drain() {
+		s.flushRateLimitSample(sample)
+	}
+	s.wg.Wait()
+}
 
 // statusWriter records the response status for the access log while passing
 // Flush through so SSE relays keep working.
@@ -299,6 +308,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /stats/requests", s.withAuth(s.handleStatsRequests))
 	mux.Handle("GET /stats/requests/facets", s.withAuth(s.handleStatsFacets))
 	mux.Handle("GET /stats/errors", s.withAuth(s.handleStatsErrors))
+	mux.Handle("GET /stats/rate-limits", s.withAuth(s.handleStatsRateLimits))
+	mux.Handle("GET /stats/rate-limits/series", s.withAuth(s.handleStatsRateLimitSeries))
 
 	mux.Handle("POST /admin/v1/providers", s.withAdmin(s.handleProviderCreate))
 	mux.Handle("GET /admin/v1/providers", s.withAdmin(s.handleProviderList))

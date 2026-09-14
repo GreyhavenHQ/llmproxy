@@ -34,7 +34,11 @@ resolution. Calling an endpoint outside a model's capability set fails at the
 proxy with a 400 naming the supported capabilities, never with a confusing
 upstream 404.
 
-Every response carries `x-llmproxy-provider` and `x-llmproxy-model`. Errors are
+Every response carries `x-llmproxy-provider` and `x-llmproxy-model`. When the
+provider has rate-limit tracking configured, responses also carry
+`x-llmproxy-ratelimit-requests-remaining`, `x-llmproxy-ratelimit-requests-limit`,
+`x-llmproxy-ratelimit-tokens-remaining` and `x-llmproxy-ratelimit-tokens-limit`
+(only the observed values are set). Errors are
 OpenAI-shaped with an added `llmproxy.source` field plus
 `x-llmproxy-error-source: proxy|upstream`; upstream error bodies and status
 codes pass through intact.
@@ -88,6 +92,8 @@ together; a pair nothing carries simply matches nothing. `outcome` takes
 | `GET /stats/requests?limit&offset` | One page of the filtered request metadata log (never content), newest first; returns `{requests, limit, offset, total}` |
 | `GET /stats/requests/facets?since&until` | Distinct principals, keys, providers, models, clients and tags in the window, for the explorer's filter options |
 | `GET /stats/errors?bucket&since&until` | The errors dashboard in one call: a gap-filled series of counts per outcome, plus a breakdown per (provider, model, endpoint, client, tags, outcome, error_kind, status_code) with request count, average duration, last-seen and time-to-outcome bands (<1s, 1-5s, 5-15s, 15-30s, 30-60s, 60-120s, >=120s). Rows with outcome `ok` are included so error rates have their denominator. |
+| `GET /stats/rate-limits` | Current rate-limit snapshot per configured provider: limits, remaining, worst remaining in the current minute, reset times, `observed_at` and a `stale` flag when the reading is older than five minutes. |
+| `GET /stats/rate-limits/series?provider&since&until` | Stored minute-bucket rate-limit samples for one provider. Each row carries the last and worst remaining values for that minute. |
 
 Failures carry an `error_kind` classification token: the transport class on
 `unreachable` (`timeout`, `connection_error`, ...) and the upstream's

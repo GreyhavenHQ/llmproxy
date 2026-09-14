@@ -146,6 +146,22 @@ export interface Provider {
   // null means unlimited.
   max_concurrency: number | null
   enabled: boolean
+  rate_limit_headers: Record<string, string> | null
+}
+
+export interface RateLimitSnapshot {
+  provider: string
+  provider_id: string
+  observed_at: string
+  stale: boolean
+  limit_requests?: number
+  remaining_requests?: number
+  min_remaining_requests?: number
+  limit_tokens?: number
+  remaining_tokens?: number
+  min_remaining_tokens?: number
+  reset_requests_at?: string
+  reset_tokens_at?: string
 }
 
 export interface Model {

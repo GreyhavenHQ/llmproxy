@@ -104,6 +104,14 @@ the header is forwarded on both. Streaming paths that duplicate request
 construction are where credential omission bugs live; a single site plus a
 test removes the class.
 
+### Rate-limit state is observed and bucketed, never enforced
+
+When a provider has `rate_limit_headers` configured, the proxy reads
+the upstream's rate-limit headers at the same single capture site as
+credentials. The values are accumulated per minute in memory. On minute
+rollover the finished bucket is persisted. The proxy never throttles or
+rejects a request based on these values. The data is telemetry only.
+
 ### Usage is merged max-wins across stream chunks
 
 The proxy forces `stream_options.include_usage` on streamed requests (there

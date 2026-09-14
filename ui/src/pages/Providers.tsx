@@ -41,6 +41,13 @@ function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+const STANDARD_RL_HEADERS: Record<string, string> = {
+  limit_requests: 'x-ratelimit-limit-requests',
+  remaining_requests: 'x-ratelimit-remaining-requests',
+  limit_tokens: 'x-ratelimit-limit-tokens',
+  remaining_tokens: 'x-ratelimit-remaining-tokens',
+}
+
 // The editable operational settings of one provider. Numbers stay strings
 // while typed; parsing happens on save.
 interface EditState {
@@ -52,6 +59,7 @@ interface EditState {
   timeout_connect: string
   timeout_read: string
   max_concurrency: string // empty = unlimited
+  rate_limit_headers: Record<string, string>
 }
 
 function editStateOf(p: Provider): EditState {
@@ -64,6 +72,7 @@ function editStateOf(p: Provider): EditState {
     timeout_connect: String(p.timeout_connect),
     timeout_read: String(p.timeout_read),
     max_concurrency: p.max_concurrency === null ? '' : String(p.max_concurrency),
+    rate_limit_headers: p.rate_limit_headers ? { ...p.rate_limit_headers } : {},
   }
 }
 
@@ -116,12 +125,16 @@ export function Providers() {
     }
     setSaving(true)
     try {
+      const rlh = Object.keys(editing.rate_limit_headers).length > 0
+        ? editing.rate_limit_headers
+        : {}
       await api.patch(`/admin/v1/providers/${encodeURIComponent(editing.name)}`, {
         base_url: editing.base_url.trim(),
         verify_tls: editing.verify_tls,
         timeout_connect: connect,
         timeout_read: read,
         max_concurrency: concurrency, // 0 clears the cap
+        rate_limit_headers: rlh,
         ...(editing.api_key !== '' ? { api_key: editing.api_key } : {}),
         ...(editing.remove_credential ? { remove_credential: true } : {}),
       })
@@ -357,6 +370,65 @@ export function Providers() {
                                 }
                               />
                             </div>
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center justify-between">
+                              <Label>Rate limit headers</Label>
+                              {Object.keys(editing.rate_limit_headers).length === 0 && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  type="button"
+                                  onClick={() =>
+                                    setEditing({
+                                      ...editing,
+                                      rate_limit_headers: { ...STANDARD_RL_HEADERS },
+                                    })
+                                  }
+                                >
+                                  Use standard headers
+                                </Button>
+                              )}
+                              {Object.keys(editing.rate_limit_headers).length > 0 && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  type="button"
+                                  onClick={() =>
+                                    setEditing({ ...editing, rate_limit_headers: {} })
+                                  }
+                                >
+                                  Clear
+                                </Button>
+                              )}
+                            </div>
+                            {Object.keys(editing.rate_limit_headers).length > 0 && (
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {Object.entries(editing.rate_limit_headers).map(([key, val]) => (
+                                  <div key={key} className="flex flex-col gap-1">
+                                    <span className="text-xs text-muted-foreground">{key}</span>
+                                    <Input
+                                      value={val}
+                                      onChange={(e) =>
+                                        setEditing({
+                                          ...editing,
+                                          rate_limit_headers: {
+                                            ...editing.rate_limit_headers,
+                                            [key]: e.target.value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {Object.keys(editing.rate_limit_headers).length === 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                Not configured. Click "Use standard headers" to track upstream
+                                rate limits.
+                              </p>
+                            )}
                           </div>
                           <div className="flex gap-2">
                             <Button size="sm" disabled={saving} onClick={saveEdit}>
