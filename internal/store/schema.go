@@ -66,7 +66,8 @@ CREATE TABLE IF NOT EXISTS provider (
     timeout_read DOUBLE PRECISION NOT NULL DEFAULT 300,
     max_concurrency INTEGER,
     enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    rate_limit_headers TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS provider_endpoint (
     id TEXT PRIMARY KEY,
@@ -156,5 +157,22 @@ CREATE TABLE IF NOT EXISTS admin_event (
     target_kind TEXT NOT NULL,
     target_ref TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_admin_event_ts ON admin_event(ts)
+CREATE INDEX IF NOT EXISTS idx_admin_event_ts ON admin_event(ts);
+CREATE TABLE IF NOT EXISTS provider_rate_limit_sample (
+    id TEXT PRIMARY KEY,
+    provider_id TEXT NOT NULL REFERENCES provider(id),
+    bucket TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    observations INTEGER NOT NULL DEFAULT 0,
+    limit_requests INTEGER,
+    remaining_requests INTEGER,
+    min_remaining_requests INTEGER,
+    limit_tokens INTEGER,
+    remaining_tokens INTEGER,
+    min_remaining_tokens INTEGER,
+    reset_requests_at TEXT,
+    reset_tokens_at TEXT,
+    UNIQUE (provider_id, bucket)
+);
+CREATE INDEX IF NOT EXISTS idx_prl_sample_bucket ON provider_rate_limit_sample(bucket)
 `

@@ -54,6 +54,23 @@ type Provider struct {
 	MaxConcurrency       sql.NullInt64
 	Enabled              bool
 	CreatedAt            string
+	RateLimitHeaders     string
+}
+
+type RateLimitSample struct {
+	ID                   string
+	ProviderID           string
+	Bucket               string
+	ObservedAt           string
+	Observations         int64
+	LimitRequests        sql.NullInt64
+	RemainingRequests    sql.NullInt64
+	MinRemainingRequests sql.NullInt64
+	LimitTokens          sql.NullInt64
+	RemainingTokens      sql.NullInt64
+	MinRemainingTokens   sql.NullInt64
+	ResetRequestsAt      sql.NullString
+	ResetTokensAt        sql.NullString
 }
 
 // ModelBinding is one caller-facing name. It either routes directly to a

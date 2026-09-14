@@ -80,6 +80,7 @@ var migrations = []migration{
 		return err
 	}},
 	addColumn("009_model_binding_hidden", "model_binding", "hidden", "INTEGER NOT NULL DEFAULT 0"),
+	addColumn("010_provider_rate_limit_headers", "provider", "rate_limit_headers", "TEXT NOT NULL DEFAULT ''"),
 }
 
 // migrate applies every pending migration in order. Each runs in its own
