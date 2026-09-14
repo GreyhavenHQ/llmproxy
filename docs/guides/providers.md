@@ -152,6 +152,64 @@ copied identifiers rather than foreign keys into the catalog.
 
 Disable instead of deleting if you might want the provider back.
 
+## Track upstream rate limits
+
+Some providers return rate-limit headers on every response.
+The proxy captures these values and exports them.
+
+### 1. Configure the header mapping
+
+Set `rate_limit_headers` on the provider.
+The standard OpenAI-style headers work for most providers:
+
+```bash
+curl -s -X PATCH $P/admin/v1/providers/tensorx -H "authorization: Bearer $ADMIN" \
+  -H 'content-type: application/json' -d '{
+    "rate_limit_headers": {
+      "limit_requests": "x-ratelimit-limit-requests",
+      "remaining_requests": "x-ratelimit-remaining-requests",
+      "limit_tokens": "x-ratelimit-limit-tokens",
+      "remaining_tokens": "x-ratelimit-remaining-tokens"
+    }
+  }'
+```
+
+Accepted metric keys:
+
+- `limit_requests`
+- `remaining_requests`
+- `limit_tokens`
+- `remaining_tokens`
+- `reset_requests`
+- `reset_tokens`
+
+The UI has a "Use standard headers" button that fills these four.
+An empty object disables tracking.
+
+### 2. Read the current state
+
+After the next proxied request, the reading appears in three places:
+
+- Response headers on every proxied response: `x-llmproxy-ratelimit-requests-remaining`,
+  `x-llmproxy-ratelimit-requests-limit`, `x-llmproxy-ratelimit-tokens-remaining`,
+  `x-llmproxy-ratelimit-tokens-limit`.
+- Prometheus gauges: `llmproxy_provider_rate_limit_remaining` and
+  `llmproxy_provider_rate_limit_limit`, labelled by `provider` and `unit`.
+- The Providers sub-tab under Usage in the UI.
+
+### 3. Query the API
+
+```bash
+# Current snapshot
+curl -s $P/stats/rate-limits -H "authorization: Bearer $KEY"
+
+# Stored minute-bucket history for one provider
+curl -s "$P/stats/rate-limits/series?provider=tensorx" -H "authorization: Bearer $KEY"
+```
+
+Both endpoints require any authenticated user.
+The snapshot includes a `stale` flag when the reading is older than five minutes.
+
 ## Where next
 
 - [models.md](models.md) to bind the provider's models.
