@@ -72,6 +72,9 @@ type Route struct {
 	UpstreamName string
 	Capabilities map[string]bool
 	URLOverrides map[string]string
+	// RateLimitHeaders maps metric keys to upstream header names.
+	// Empty when the provider has no rate-limit tracking configured.
+	RateLimitHeaders map[string]string
 }
 
 func (r *Route) EndpointURL(endpoint string) string {
@@ -192,21 +195,22 @@ func (c *Catalog) load(ctx context.Context, alias string) (*Route, error) {
 		}
 	}
 	return &Route{
-		ProviderID:     provider.ID,
-		ProviderName:   provider.Name,
-		WireFormat:     provider.WireFormat,
-		BaseURL:        provider.BaseURL,
-		Credential:     credential,
-		VerifyTLS:      provider.VerifyTLS,
-		CAPEM:          provider.CAPEM.String,
-		TimeoutConnect: time.Duration(provider.TimeoutConnect * float64(time.Second)),
-		TimeoutRead:    time.Duration(provider.TimeoutRead * float64(time.Second)),
-		MaxConcurrency: int(provider.MaxConcurrency.Int64),
-		Alias:          binding.Alias,
-		TargetAlias:    binding.TargetAlias,
-		UpstreamName:   binding.UpstreamName,
-		Capabilities:   caps,
-		URLOverrides:   overrides,
+		ProviderID:       provider.ID,
+		ProviderName:     provider.Name,
+		WireFormat:       provider.WireFormat,
+		BaseURL:          provider.BaseURL,
+		Credential:       credential,
+		VerifyTLS:        provider.VerifyTLS,
+		CAPEM:            provider.CAPEM.String,
+		TimeoutConnect:   time.Duration(provider.TimeoutConnect * float64(time.Second)),
+		TimeoutRead:      time.Duration(provider.TimeoutRead * float64(time.Second)),
+		MaxConcurrency:   int(provider.MaxConcurrency.Int64),
+		Alias:            binding.Alias,
+		TargetAlias:      binding.TargetAlias,
+		UpstreamName:     binding.UpstreamName,
+		Capabilities:     caps,
+		URLOverrides:     overrides,
+		RateLimitHeaders: ParseRateLimitHeaders(provider.RateLimitHeaders),
 	}, nil
 }
 
@@ -222,17 +226,18 @@ func RouteForProvider(p *store.Provider, secret []byte) (*Route, error) {
 		}
 	}
 	return &Route{
-		ProviderID:     p.ID,
-		ProviderName:   p.Name,
-		WireFormat:     p.WireFormat,
-		BaseURL:        p.BaseURL,
-		Credential:     credential,
-		VerifyTLS:      p.VerifyTLS,
-		CAPEM:          p.CAPEM.String,
-		TimeoutConnect: time.Duration(p.TimeoutConnect * float64(time.Second)),
-		TimeoutRead:    time.Duration(p.TimeoutRead * float64(time.Second)),
-		MaxConcurrency: int(p.MaxConcurrency.Int64),
-		Capabilities:   map[string]bool{},
-		URLOverrides:   map[string]string{},
+		ProviderID:       p.ID,
+		ProviderName:     p.Name,
+		WireFormat:       p.WireFormat,
+		BaseURL:          p.BaseURL,
+		Credential:       credential,
+		VerifyTLS:        p.VerifyTLS,
+		CAPEM:            p.CAPEM.String,
+		TimeoutConnect:   time.Duration(p.TimeoutConnect * float64(time.Second)),
+		TimeoutRead:      time.Duration(p.TimeoutRead * float64(time.Second)),
+		MaxConcurrency:   int(p.MaxConcurrency.Int64),
+		Capabilities:     map[string]bool{},
+		URLOverrides:     map[string]string{},
+		RateLimitHeaders: ParseRateLimitHeaders(p.RateLimitHeaders),
 	}, nil
 }
