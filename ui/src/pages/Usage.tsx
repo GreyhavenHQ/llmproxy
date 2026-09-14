@@ -5,12 +5,14 @@ import { UsageDashboard } from '@/components/UsageDashboard'
 import { AppsUsage } from '@/components/AppsUsage'
 import { ErrorsDashboard } from '@/components/ErrorsDashboard'
 import { ModelsCatalog } from '@/components/ModelsCatalog'
+import { ProvidersUsage } from '@/components/ProvidersUsage'
 import { cn } from '@/lib/utils'
 
 const SUBS = [
   { key: 'overview', label: 'Overview' },
   { key: 'apps', label: 'Apps' },
   { key: 'models', label: 'Models' },
+  { key: 'providers', label: 'Providers' },
   { key: 'errors', label: 'Errors' },
 ]
 
@@ -54,6 +56,8 @@ export function Usage({
         <AppsUsage />
       ) : sub === 'models' ? (
         <ModelsCatalog />
+      ) : sub === 'providers' ? (
+        <ProvidersUsage />
       ) : sub === 'errors' ? (
         <ErrorsDashboard />
       ) : (
