@@ -239,9 +239,17 @@ function TargetsField({
   }
   return (
     <div className="flex flex-col gap-2 sm:col-span-2">
-      <Label htmlFor={`${id}-target-0`}>
-        {targets.length > 1 ? 'Models it points at' : 'Model it points at'}
-      </Label>
+      <div className="flex items-center gap-1">
+        <Label htmlFor={`${id}-target-0`} className="flex-1">
+          {targets.length > 1 ? 'Models it points at' : 'Model it points at'}
+        </Label>
+        {several && strategy === 'weighted' && (
+          <>
+            <span className="w-20 text-sm font-medium">Weight</span>
+            <span className="w-26" />
+          </>
+        )}
+      </div>
       {targets.map((t, i) => (
         <div key={i} className="flex items-center gap-1">
           <Combobox
@@ -259,7 +267,6 @@ function TargetsField({
               type="number"
               min={1}
               aria-label={`Weight of target ${i + 1}`}
-              title="Weight"
               className="w-20"
               value={t.weight}
               onChange={(e) =>
@@ -830,7 +837,17 @@ export function Models() {
                           {m.hidden && <Badge variant="muted">hidden</Badge>}
                         </span>
                       </TableCell>
-                      <TableCell className="wrap-anywhere">{m.provider}</TableCell>
+                      <TableCell className="wrap-anywhere">
+                        {m.targets.length > 1 ? (
+                          <span className="flex flex-col">
+                            {[...new Set(m.targets.map((t) => t.provider))].map((p) => (
+                              <span key={p}>{p}</span>
+                            ))}
+                          </span>
+                        ) : (
+                          m.provider
+                        )}
+                      </TableCell>
                       <TableCell className="font-mono text-xs wrap-anywhere">
                         {m.targets.length > 1 ? (
                           <span className="flex flex-col">

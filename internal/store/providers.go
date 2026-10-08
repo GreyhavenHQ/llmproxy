@@ -184,7 +184,7 @@ func scanBinding(row interface{ Scan(...any) error }) (*ModelBinding, error) {
 	}
 	b.Hidden = hidden != 0
 	if b.TargetID.Valid {
-		b.Targets = []BindingTarget{{ID: b.TargetID.String, Alias: b.TargetAlias, Weight: 1}}
+		b.Targets = []BindingTarget{{ID: b.TargetID.String, Alias: b.TargetAlias, Provider: b.ProviderName, Weight: 1}}
 	}
 	return &b, nil
 }
@@ -214,8 +214,9 @@ func (s *Store) attachTargets(ctx context.Context, bindings []*ModelBinding) err
 		return nil
 	}
 	rows, err := s.db.QueryContext(ctx, s.q(`
-		SELECT bt.binding_id, bt.target_id, t.alias, bt.weight, t.capability_set
+		SELECT bt.binding_id, bt.target_id, t.alias, p.name, bt.weight, t.capability_set
 		FROM model_binding_target bt JOIN model_binding t ON t.id = bt.target_id
+		JOIN provider p ON p.id = t.provider_id
 		WHERE bt.binding_id IN (`+placeholders(len(ids))+`)
 		ORDER BY bt.binding_id, bt.position`), ids...)
 	if err != nil {
@@ -226,7 +227,7 @@ func (s *Store) attachTargets(ctx context.Context, bindings []*ModelBinding) err
 	for rows.Next() {
 		var bindingID, capabilitySet string
 		var t BindingTarget
-		if err := rows.Scan(&bindingID, &t.ID, &t.Alias, &t.Weight, &capabilitySet); err != nil {
+		if err := rows.Scan(&bindingID, &t.ID, &t.Alias, &t.Provider, &t.Weight, &capabilitySet); err != nil {
 			return err
 		}
 		b := multi[bindingID]

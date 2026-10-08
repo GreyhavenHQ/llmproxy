@@ -61,7 +61,8 @@ func TestAliasTargetsRoundTrip(t *testing.T) {
 	if got.Strategy != "weighted" || len(got.Targets) != 2 {
 		t.Fatalf("got %+v", got)
 	}
-	if got.Targets[0].Alias != "b" || got.Targets[0].Weight != 3 || got.Targets[1].Alias != "a" {
+	if got.Targets[0].Alias != "b" || got.Targets[0].Weight != 3 || got.Targets[1].Alias != "a" ||
+		got.Targets[0].Provider != "pb" || got.Targets[1].Provider != "pa" {
 		t.Fatalf("targets = %+v", got.Targets)
 	}
 	if got.TargetID.Valid {

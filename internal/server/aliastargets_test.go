@@ -44,7 +44,8 @@ func TestAliasWithSeveralTargetsThroughAdminAPI(t *testing.T) {
 	}
 	targets := view["targets"].([]any)
 	if len(targets) != 2 || targets[0].(map[string]any)["alias"] != b.Alias ||
-		targets[1].(map[string]any)["weight"] != 3.0 {
+		targets[1].(map[string]any)["weight"] != 3.0 ||
+		targets[0].(map[string]any)["provider"] != "pb" || targets[1].(map[string]any)["provider"] != "pa" {
 		t.Fatalf("targets = %v", targets)
 	}
 	if caps := view["capabilities"].([]any); len(caps) != 2 {

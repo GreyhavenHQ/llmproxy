@@ -453,7 +453,7 @@ func modelView(b *store.ModelBinding, idx *pricing.Index) map[string]any {
 func targetViews(targets []store.BindingTarget) []map[string]any {
 	out := make([]map[string]any, 0, len(targets))
 	for _, t := range targets {
-		out = append(out, map[string]any{"alias": t.Alias, "weight": t.Weight})
+		out = append(out, map[string]any{"alias": t.Alias, "provider": t.Provider, "weight": t.Weight})
 	}
 	return out
 }

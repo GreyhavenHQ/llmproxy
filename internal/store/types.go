@@ -105,9 +105,10 @@ type ModelBinding struct {
 }
 
 type BindingTarget struct {
-	ID     string
-	Alias  string
-	Weight int
+	ID       string
+	Alias    string
+	Provider string
+	Weight   int
 }
 
 // ResolvedTarget is one servable target of an alias, or the binding itself

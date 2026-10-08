@@ -718,10 +718,13 @@ components:
 
     AliasTarget:
       type: object
-      required: [alias, weight]
+      required: [alias, provider, weight]
       properties:
         alias:
           type: string
+        provider:
+          type: string
+          description: The provider this target routes to.
         weight:
           type: integer
           minimum: 1

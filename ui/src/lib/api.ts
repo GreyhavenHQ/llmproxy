@@ -166,6 +166,7 @@ export interface RateLimitSnapshot {
 
 export interface AliasTarget {
   alias: string
+  provider?: string
   weight: number
 }
 
