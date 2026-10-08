@@ -11,7 +11,7 @@ The full machine-readable spec is in [openapi.yaml](openapi.yaml).
 |---|---|---|
 | `POST /v1/chat/completions` | **Supported** | Unary JSON and SSE streaming. Vision content parts, tool/function calls, response_format, logprobs etc. pass through untouched. Capability `chat` (+ `chat_stream` for streaming). |
 | `POST /v1/completions` | **Supported** | Legacy text completions, unary and streamed. Capability `completions`. |
-| `GET /v1/models` | **Supported** | Aliases on enabled providers, minus the hidden ones; `?endpoint=chat\|embeddings\|...` filters by capability. `?include_hidden=1` adds hidden models and needs an API key or session (401 without one). `?include_pricing=1` adds `pricing` (per million units, the prices in force) and `pricing_inherited`, and needs an API key or session too. Each entry carries the OpenAI fields plus `capabilities` (resolved), `alias_of` (the model this name points at, or `null`) and `hidden`. Public, no API key required. |
+| `GET /v1/models` | **Supported** | Aliases on enabled providers, minus the hidden ones; `?endpoint=chat\|embeddings\|...` filters by capability. `?include_hidden=1` adds hidden models and needs an API key or session (401 without one). `?include_pricing=1` adds `pricing` (per million units, the prices in force) and `pricing_inherited`, and needs an API key or session too. Each entry carries the OpenAI fields plus `capabilities` (resolved), `alias_of` (the model this name points at, or `null`), `targets` and `strategy` (for an alias with several targets, else `null`) and `hidden`. Public, no API key required. |
 | `GET /v1/models/{id}` | Not yet | Trivial to add; nothing has needed it. |
 | `POST /v1/embeddings` | **Supported** | Unary passthrough. Capability `embeddings`. Array `input` is capped at `LLMPROXY_MAX_EMBEDDING_BATCH` items (default 2048); larger batches get 400 `embedding_batch_too_large`. |
 | `POST /v1/audio/transcriptions` | Planned | Streamed multipart, no disk spill; `audio_seconds` unit reserved. |
@@ -29,8 +29,10 @@ only exposes curated aliases and provider names. Its `include_hidden=1` form
 is not, since it names models an admin took off the list.
 
 Model names callers see are curated aliases, globally unique across all
-providers; there is no bare-upstream-name fallback and no multi-provider
-resolution. Calling an endpoint outside a model's capability set fails at the
+providers; there is no bare-upstream-name fallback. An alias can point at
+several models, and the proxy then picks one per request by the alias's
+strategy (see [models](../guides/models.md#point-a-name-at-several-models)).
+Calling an endpoint outside a model's capability set fails at the
 proxy with a 400 naming the supported capabilities, never with a confusing
 upstream 404.
 
@@ -38,7 +40,8 @@ Every response carries `x-llmproxy-provider` and `x-llmproxy-model`. When the
 provider has rate-limit tracking configured, responses also carry
 `x-llmproxy-ratelimit-requests-remaining`, `x-llmproxy-ratelimit-requests-limit`,
 `x-llmproxy-ratelimit-tokens-remaining` and `x-llmproxy-ratelimit-tokens-limit`
-(only the observed values are set). Errors are
+(only the observed values are set). A request to an alias with several
+targets also carries `x-llmproxy-attempts`, the number of targets tried. Errors are
 OpenAI-shaped with an added `llmproxy.source` field plus
 `x-llmproxy-error-source: proxy|upstream`; upstream error bodies and status
 codes pass through intact.
@@ -89,7 +92,7 @@ together; a pair nothing carries simply matches nothing. `outcome` takes
 |---|---|
 | `GET /stats/series?bucket&since&until` | Bucketed usage across everyone |
 | `GET /stats/summary?since&until` | Usage aggregated per (principal, provider, model, endpoint, client, tags) |
-| `GET /stats/requests?limit&offset` | One page of the filtered request metadata log (never content), newest first; returns `{requests, limit, offset, total}` |
+| `GET /stats/requests?limit&offset` | One page of the filtered request metadata log (never content), newest first, with `failed_over` set on attempts another target replaced; returns `{requests, limit, offset, total}` |
 | `GET /stats/requests/facets?since&until` | Distinct principals, keys, providers, models, clients and tags in the window, for the explorer's filter options |
 | `GET /stats/errors?bucket&since&until` | The errors dashboard in one call: a gap-filled series of counts per outcome, plus a breakdown per (provider, model, endpoint, client, tags, outcome, error_kind, status_code) with request count, average duration, last-seen and time-to-outcome bands (<1s, 1-5s, 5-15s, 15-30s, 30-60s, 60-120s, >=120s). Rows with outcome `ok` are included so error rates have their denominator. |
 | `GET /stats/performance?bucket&since&until` | The performance view in one call: a summary, a gap-filled series and a per-model breakdown. Each holds `requests`, `measured`, and `duration_ms`, `ttft_ms` and `tokens_per_second` as `{mean, p50, p95}`, null when no request qualifies. The summary and the series also hold `concurrency` as `{average, peak}`. A range with more than 500,000 requests is a 400 `range_too_large`. |
@@ -125,7 +128,7 @@ Proxy-generated errors: 404 `unknown_relay_token`, 404
 |---|---|
 | `POST/GET/PATCH/DELETE /providers[/{name}]` | Register, inspect, edit, unregister providers (upstream key encrypted at rest, never returned) |
 | `GET /providers/{name}/discover` | Upstream model listing; read-only, never auto-binds |
-| `POST/GET/PATCH/DELETE /models[/{alias}]` | Bind upstream models to globally unique aliases with capability sets and per-unit prices; a name can instead `target` another model and inherit its provider, capabilities and prices (one hop). Everything, including the name, is editable in place; a binding serves as soon as it exists (disable the provider to take it offline) |
+| `POST/GET/PATCH/DELETE /models[/{alias}]` | Bind upstream models to globally unique aliases with capability sets and per-unit prices; a name can instead `target` another model and inherit its provider, capabilities and prices (one hop), or list several `targets` with a `strategy`. Everything, including the name, is editable in place; a binding serves as soon as it exists (disable the provider to take it offline) |
 | `GET /resolve?model&endpoint&stream` | Dry-run alias resolution |
 | `POST/GET /principals` | Users and service principals |
 | `POST /principals/{id}/revoke-sessions` | Delete every browser session of a principal (API keys untouched) |
@@ -133,7 +136,7 @@ Proxy-generated errors: 404 `unknown_relay_token`, 404
 | `POST/GET /pricing` | Load/inspect the versioned pricing feed (bulk; per-model prices go through `/models`) |
 | `GET /usage/summary?since&until&principal` | Usage and cost by principal/model/endpoint/unit |
 | `GET /usage/series?bucket&since&until&principal` | Usage bucketed by hour/day/week/month across everyone |
-| `GET /requests?limit&offset` | The request metadata log with per-unit quantities (who, key, model, outcome, tokens; never content); same filters as `/stats/requests` |
+| `GET /requests?limit&offset` | The request metadata log with per-unit quantities (who, key, model, outcome, `failed_over`, tokens; never content); same filters as `/stats/requests` |
 | `GET /events` | Metadata-only admin audit trail |
 
 ### Pagination

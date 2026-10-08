@@ -142,10 +142,72 @@ Three rules, enforced at write time:
 Usage is recorded against the name the caller passed, so two teams pointing at
 one model stay distinguishable in the summaries.
 
+## Point a name at several models
+
+Give `targets` and a `strategy` to spread one name over several models, for
+example the same model on two providers:
+
+```bash
+curl -s $P/admin/v1/models -H "authorization: Bearer $ADMIN" \
+  -H 'content-type: application/json' \
+  -d '{"alias": "acme/smart", "targets": ["glm-tensorx", "glm-vllm"], "strategy": "failover"}'
+```
+
+```json
+{
+  "alias": "acme/smart",
+  "target": null,
+  "targets": [
+    {"alias": "glm-tensorx", "weight": 1},
+    {"alias": "glm-vllm", "weight": 1}
+  ],
+  "strategy": "failover",
+  "capabilities": ["chat", "chat_stream"]
+}
+```
+
+The strategy picks the first target for each request:
+
+| `strategy` | First target |
+|---|---|
+| `failover` (default) | The first in the list |
+| `round_robin` | The next in the list, in turn |
+| `weighted` | A random pick, in proportion to `weight` |
+| `least_busy` | The one with the fewest requests in flight |
+
+A target entry is a model name, or `{"alias": "...", "weight": 3}`. A weight
+is used only by `weighted` and defaults to 1.
+
+With every strategy, the proxy tries the next target when an attempt fails
+before any byte reaches the caller:
+
+- The upstream is unreachable.
+- The upstream answers 429 or a 5xx status.
+
+After the first byte, the response is the caller's, and an error after that
+point is relayed as it is. A target that failed goes to the end of the order
+for `LLMPROXY_FAILOVER_COOLDOWN` (30 seconds by default). The response header
+`x-llmproxy-attempts` gives the number of targets tried. Each failed attempt
+is recorded as a usage row flagged `failed_over`, which request counts leave
+out.
+
+The rules of [a single target](#point-a-name-at-another-model) apply to each
+target. Two more apply to the list:
+
+- **Capabilities are the intersection.** The name serves only what every
+  target serves.
+- **Prices come from the target that answered,** unless the name has a price
+  of its own.
+
+A `strategy` with one target, or an unknown one, is 400 `invalid_strategy`. A
+name listed twice is 400 `invalid_target`.
+
 ## Edit a model
 
 `PATCH /admin/v1/models/{alias}` takes any of `alias`, `provider`,
-`capabilities`, `upstream_name`, `target`, `pricing` and `hidden`. Everything
+`capabilities`, `upstream_name`, `target`, `targets`, `strategy`, `pricing`
+and `hidden`. `targets` replaces the whole list, and `strategy` alone keeps
+the list. Everything
 is editable in place; nothing here needs deleting and recreating.
 
 ```bash
@@ -213,9 +275,25 @@ curl -s "$P/admin/v1/resolve?model=qwen-72b&endpoint=chat&stream=true" \
   "provider": "vllm-1",
   "upstream_name": "Qwen/Qwen2.5-VL-72B-Instruct",
   "url": "http://10.0.0.5:8000/v1/chat/completions",
-  "capabilities": ["chat", "chat_stream", "completions"]
+  "capabilities": ["chat", "chat_stream", "completions"],
+  "strategy": null,
+  "targets": [
+    {
+      "alias": "qwen-72b",
+      "provider": "vllm-1",
+      "upstream_name": "Qwen/Qwen2.5-VL-72B-Instruct",
+      "url": "http://10.0.0.5:8000/v1/chat/completions",
+      "weight": 1,
+      "cooling_down": false,
+      "cooldown_until": null
+    }
+  ]
 }
 ```
+
+For a name with several targets, `targets` lists them in the order the
+next request would try, and `cooling_down` marks a target that failed
+recently. The order is per replica.
 
 `endpoint` defaults to `chat`; `stream=true` additionally requires
 `chat_stream`. `url` reflects any per-endpoint override. The failure modes are
