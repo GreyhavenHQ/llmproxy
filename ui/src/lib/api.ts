@@ -242,7 +242,7 @@ export interface RequestRow {
   cost: number | null
   unpriced: boolean
   duration_ms: number
-  // ttft_ms is the time to the first streamed byte; null on unary requests.
+  // ttft_ms is the time to the first content event; null on unary requests.
   ttft_ms: number | null
   units: Record<string, number>
 }

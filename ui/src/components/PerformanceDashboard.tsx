@@ -157,7 +157,7 @@ export function PerformanceDashboard() {
     },
     {
       title: 'Time to first token',
-      description: 'Time from request to first streamed byte.',
+      description: 'Time from request to the first content event.',
       points: pointsOf((b) => [b.ttft_ms.p50, b.ttft_ms.p95]),
       format: ms,
     },
