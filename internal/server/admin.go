@@ -1166,7 +1166,11 @@ func (s *Server) serveRequestLog(w http.ResponseWriter, r *http.Request) {
 			"cost":        nil,
 			"unpriced":    ev.Unpriced,
 			"duration_ms": ev.DurationMs,
+			"ttft_ms":     nil,
 			"units":       ev.Units,
+		}
+		if ev.TTFTMs.Valid {
+			view["ttft_ms"] = ev.TTFTMs.Int64
 		}
 		if ev.StatusCode.Valid {
 			view["status_code"] = ev.StatusCode.Int64

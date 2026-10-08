@@ -319,3 +319,17 @@ type UsageSeriesRow struct {
 	Cost      sql.NullFloat64
 	Units     map[string]float64
 }
+
+// PerformanceEvent is the timing metadata of one usage event, as the
+// performance view reads it.
+type PerformanceEvent struct {
+	TS           string
+	DurationMs   int64
+	TTFTMs       sql.NullInt64
+	OutputTokens sql.NullFloat64
+	Outcome      string
+	Cancelled    bool
+	Streamed     bool
+	Alias        string
+	Provider     string
+}
