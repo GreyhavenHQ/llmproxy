@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sort"
+	"strings"
 
 	"github.com/greyhavenhq/llmproxy/internal/secrets"
 )
@@ -196,7 +198,8 @@ func targetsWhere(cond string) string {
 		WHERE bt.binding_id = b.id AND ` + cond + `)`
 }
 
-// attachTargets fills Targets for aliases stored in the target table.
+// attachTargets fills Targets for aliases stored in the target table, and
+// their capabilities as the intersection over every target.
 func (s *Store) attachTargets(ctx context.Context, bindings []*ModelBinding) error {
 	multi := map[string]*ModelBinding{}
 	var ids []any
@@ -211,7 +214,7 @@ func (s *Store) attachTargets(ctx context.Context, bindings []*ModelBinding) err
 		return nil
 	}
 	rows, err := s.db.QueryContext(ctx, s.q(`
-		SELECT bt.binding_id, bt.target_id, t.alias, bt.weight
+		SELECT bt.binding_id, bt.target_id, t.alias, bt.weight, t.capability_set
 		FROM model_binding_target bt JOIN model_binding t ON t.id = bt.target_id
 		WHERE bt.binding_id IN (`+placeholders(len(ids))+`)
 		ORDER BY bt.binding_id, bt.position`), ids...)
@@ -219,13 +222,38 @@ func (s *Store) attachTargets(ctx context.Context, bindings []*ModelBinding) err
 		return err
 	}
 	defer rows.Close()
+	caps := map[string]map[string]bool{}
 	for rows.Next() {
-		var bindingID string
+		var bindingID, capabilitySet string
 		var t BindingTarget
-		if err := rows.Scan(&bindingID, &t.ID, &t.Alias, &t.Weight); err != nil {
+		if err := rows.Scan(&bindingID, &t.ID, &t.Alias, &t.Weight, &capabilitySet); err != nil {
 			return err
 		}
-		multi[bindingID].Targets = append(multi[bindingID].Targets, t)
+		b := multi[bindingID]
+		own := map[string]bool{}
+		for _, c := range strings.Split(capabilitySet, ",") {
+			own[c] = true
+		}
+		if len(b.Targets) == 0 {
+			caps[bindingID] = own
+		} else {
+			for c := range caps[bindingID] {
+				if !own[c] {
+					delete(caps[bindingID], c)
+				}
+			}
+		}
+		b.Targets = append(b.Targets, t)
+	}
+	for id, set := range caps {
+		list := make([]string, 0, len(set))
+		for c := range set {
+			if c != "" {
+				list = append(list, c)
+			}
+		}
+		sort.Strings(list)
+		multi[id].CapabilitySet = strings.Join(list, ",")
 	}
 	return rows.Err()
 }

@@ -67,13 +67,16 @@ func TestAliasTargetsRoundTrip(t *testing.T) {
 	if got.TargetID.Valid {
 		t.Fatal("multi-target alias must not set target_id")
 	}
+	if got.CapabilitySet != "chat,chat_stream" {
+		t.Fatalf("capabilities = %q, want the intersection", got.CapabilitySet)
+	}
 
 	list, err := f.st.ListBindings(ctx, "", 100, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, b := range list {
-		if b.Alias == "ha" && len(b.Targets) != 2 {
+		if b.Alias == "ha" && (len(b.Targets) != 2 || b.CapabilitySet != "chat,chat_stream") {
 			t.Fatalf("list targets = %+v", b.Targets)
 		}
 	}
