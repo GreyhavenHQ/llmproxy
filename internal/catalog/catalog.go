@@ -177,10 +177,11 @@ func (c *Catalog) lookup(ctx context.Context, alias string) (*Route, error) {
 }
 
 func (c *Catalog) load(ctx context.Context, alias string) (*Route, error) {
-	binding, provider, overrides, err := c.store.ResolveAlias(ctx, alias)
-	if err != nil || binding == nil || provider == nil {
+	binding, targets, err := c.store.ResolveAlias(ctx, alias)
+	if err != nil || binding == nil {
 		return nil, err
 	}
+	binding, provider, overrides := targets[0].Binding, targets[0].Provider, targets[0].Overrides
 	credential := ""
 	if provider.CredentialCiphertext.Valid && provider.CredentialCiphertext.String != "" {
 		credential, err = secrets.DecryptCredential(c.secret, provider.CredentialCiphertext.String)

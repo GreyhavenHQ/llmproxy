@@ -23,11 +23,11 @@ func (s *Store) InsertUsageEvent(ctx context.Context, ev *UsageEvent, quantities
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, s.q(`
 		INSERT INTO usage_event (id, ts, principal_id, api_key_id, provider_id, alias, upstream_name,
-			endpoint, client, tags, status_code, outcome, error_kind, cancelled, streamed, cost, unpriced, duration_ms, ttft_ms)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			endpoint, client, tags, status_code, outcome, error_kind, cancelled, streamed, cost, unpriced, duration_ms, ttft_ms, failed_over)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		ev.ID, ev.TS, ev.PrincipalID, ev.APIKeyID, ev.ProviderID, ev.Alias, ev.UpstreamName,
 		ev.Endpoint, ev.Client, ev.Tags, ev.StatusCode, ev.Outcome, ev.ErrorKind, boolInt(ev.Cancelled), boolInt(ev.Streamed),
-		ev.Cost, boolInt(ev.Unpriced), ev.DurationMs, ev.TTFTMs); err != nil {
+		ev.Cost, boolInt(ev.Unpriced), ev.DurationMs, ev.TTFTMs, boolInt(ev.FailedOver)); err != nil {
 		return err
 	}
 	for _, q := range quantities {
@@ -45,7 +45,8 @@ func (s *Store) InsertUsageEvent(ctx context.Context, ev *UsageEvent, quantities
 func (s *Store) ListUsageEvents(ctx context.Context) ([]UsageEvent, error) {
 	rows, err := s.db.QueryContext(ctx, s.q(`
 		SELECT id, ts, principal_id, api_key_id, provider_id, alias, upstream_name, endpoint,
-			client, tags, status_code, outcome, error_kind, cancelled, streamed, cost, unpriced, duration_ms, ttft_ms
+			client, tags, status_code, outcome, error_kind, cancelled, streamed, cost, unpriced, duration_ms, ttft_ms,
+			failed_over
 		FROM usage_event ORDER BY ts`))
 	if err != nil {
 		return nil, err
@@ -54,12 +55,13 @@ func (s *Store) ListUsageEvents(ctx context.Context) ([]UsageEvent, error) {
 	var out []UsageEvent
 	for rows.Next() {
 		var ev UsageEvent
-		var cancelled, streamed, unpriced int64
+		var cancelled, streamed, unpriced, failedOver int64
 		if err := rows.Scan(&ev.ID, &ev.TS, &ev.PrincipalID, &ev.APIKeyID, &ev.ProviderID,
 			&ev.Alias, &ev.UpstreamName, &ev.Endpoint, &ev.Client, &ev.Tags, &ev.StatusCode, &ev.Outcome,
-			&ev.ErrorKind, &cancelled, &streamed, &ev.Cost, &unpriced, &ev.DurationMs, &ev.TTFTMs); err != nil {
+			&ev.ErrorKind, &cancelled, &streamed, &ev.Cost, &unpriced, &ev.DurationMs, &ev.TTFTMs, &failedOver); err != nil {
 			return nil, err
 		}
+		ev.FailedOver = failedOver != 0
 		ev.Cancelled = cancelled != 0
 		ev.Streamed = streamed != 0
 		ev.Unpriced = unpriced != 0
