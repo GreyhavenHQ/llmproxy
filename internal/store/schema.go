@@ -119,7 +119,8 @@ CREATE TABLE IF NOT EXISTS usage_event (
     streamed INTEGER NOT NULL DEFAULT 0,
     cost DOUBLE PRECISION,
     unpriced INTEGER NOT NULL DEFAULT 0,
-    duration_ms INTEGER NOT NULL DEFAULT 0
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    ttft_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_usage_event_ts ON usage_event(ts);
 CREATE INDEX IF NOT EXISTS idx_usage_event_principal ON usage_event(principal_id);

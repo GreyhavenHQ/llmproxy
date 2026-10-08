@@ -126,6 +126,9 @@ type UsageEvent struct {
 	Cost       sql.NullFloat64
 	Unpriced   bool
 	DurationMs int64
+	// TTFTMs is the time to the first content event of a stream. Null on
+	// unary requests and on streams that ended before any content.
+	TTFTMs sql.NullInt64
 }
 
 type UsageQuantity struct {
@@ -185,6 +188,7 @@ type RequestLogRow struct {
 	Cost          sql.NullFloat64
 	Unpriced      bool
 	DurationMs    int64
+	TTFTMs        sql.NullInt64
 	Units         map[string]float64
 }
 
