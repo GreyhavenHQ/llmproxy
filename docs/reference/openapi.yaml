@@ -2709,6 +2709,13 @@ paths:
                           type: boolean
                         duration_ms:
                           type: integer
+                        ttft_ms:
+                          type: [integer, 'null']
+                          description: >
+                            Time to first token in milliseconds, from the
+                            upstream call to the first event with generated
+                            content. Null on unary requests and on streams
+                            that ended before any content.
                         units:
                           type: object
                           additionalProperties:

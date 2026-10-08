@@ -19,8 +19,8 @@ ever persisted**, and there is no flag to turn that on; see
 [../concepts/architecture.md](../concepts/architecture.md#the-schema-is-content-free-by-construction).
 
 Per event: principal, key, provider, model, upstream name, endpoint, client,
-status code, outcome, error kind, cancelled and streamed flags, duration and
-cost. Attached to it, one row per unit: `(unit, quantity, unit_price,
+status code, outcome, error kind, cancelled and streamed flags, duration, time
+to first token (streamed requests only) and cost. Attached to it, one row per unit: `(unit, quantity, unit_price,
 priced)`.
 
 | Field | Values |
@@ -153,6 +153,7 @@ not visibility.
 | `GET /stats/requests` | One page of the request metadata log, newest first, failures included. `limit` (max 500) and `offset` page it; the response carries `{requests, limit, offset, total}` |
 | `GET /stats/requests/facets` | The distinct principals, keys, providers, models, clients and tags in the window, for filter menus. Each list caps at 500 values |
 | `GET /stats/errors` | The errors dashboard in one call: a gap-filled series of counts per outcome, plus a breakdown per (provider, model, endpoint, client, tags, outcome, error_kind, status_code) with request count, average duration, last-seen and time-to-outcome bands |
+| `GET /stats/performance` | The performance view in one call; see [Read performance](#read-performance) |
 
 All of them take the same filters:
 
@@ -198,6 +199,44 @@ Two things to know when reading `/stats/summary`:
   Both stay visible in the series and the request log.
 - `/stats/errors` includes cells with outcome `ok`, so error rates per
   dimension have their denominator.
+
+## Read performance
+
+The Performance view under the Usage tab shows how fast requests completed.
+`GET /stats/performance` serves the same data. It takes the filters above and
+`bucket=hour|day|week|month` (default `day`).
+
+```bash
+curl -s "$P/stats/performance?since=2026-07-01&bucket=day" -H "authorization: Bearer $KEY"
+```
+
+The response holds a `summary`, a gap-filled `series` with one entry per
+bucket, and a `models` list with one entry per (provider, model). Each entry
+reports these figures:
+
+| Figure | Definition |
+|---|---|
+| `duration_ms` | Time from the upstream call to the last byte |
+| `ttft_ms` | Time to first token: from the upstream call to the first event with generated content. Streamed requests only |
+| `tokens_per_second` | Output tokens divided by (duration minus time to first token). Streamed requests with both figures only |
+| `concurrency` | Requests in flight at the same time: `average` and `peak`. Summary and series only |
+
+The three latency figures are `{mean, p50, p95}`. They count only requests
+with outcome `ok` that were not cancelled. `requests` counts every request in
+the entry, and `measured` counts the requests that qualified. A figure with no
+qualifying request is `null`, never zero.
+
+Two things to know when reading `/stats/performance`:
+
+- A request has a start (end time minus duration) and an end. Latency figures
+  count it in the bucket where it ended. Concurrency splits it across every
+  bucket it spans.
+- Requests match the window by their end time. A request still running, or
+  one that ended after `until`, is not counted. A request that started before
+  the first bucket adds to concurrency only from that bucket on.
+
+A range with more than 500,000 requests returns 400 `range_too_large`. Narrow
+the range or add a filter.
 
 ## Scrape metrics
 
