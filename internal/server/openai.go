@@ -142,11 +142,12 @@ func (s *Server) proxyCompletion(w http.ResponseWriter, r *http.Request, auth *A
 		return
 	}
 
-	route, rerr := s.catalog.Resolve(r.Context(), model, endpoint, stream)
+	plan, rerr := s.catalog.Resolve(r.Context(), model, endpoint, stream)
 	if rerr != nil {
 		writeProxyError(w, rerr)
 		return
 	}
+	route := plan.Routes[0]
 
 	fields["model"], _ = json.Marshal(route.UpstreamName)
 	if stream {

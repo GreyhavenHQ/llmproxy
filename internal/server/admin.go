@@ -845,13 +845,15 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request, auth *Aut
 		endpoint = "chat"
 	}
 	stream := r.URL.Query().Get("stream") == "true"
-	route, perr := s.catalog.Resolve(r.Context(), model, endpoint, stream)
+	plan, perr := s.catalog.Resolve(r.Context(), model, endpoint, stream)
 	if perr != nil {
 		writeProxyError(w, perr)
 		return
 	}
-	caps := make([]string, 0, len(route.Capabilities))
-	for c := range route.Capabilities {
+	route := plan.Routes[0]
+	planCaps := plan.Capabilities()
+	caps := make([]string, 0, len(planCaps))
+	for c := range planCaps {
 		caps = append(caps, c)
 	}
 	sort.Strings(caps)
