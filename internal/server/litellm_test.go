@@ -44,20 +44,6 @@ func TestLiteLLMManagementCompat(t *testing.T) {
 		t.Fatalf("re-register: %d %s", resp.StatusCode, body)
 	}
 
-	// A different mapping under the same model_name is rejected (aliases are
-	// unique; llmproxy does not do LiteLLM-style multi-deployment balancing).
-	conflicting := map[string]any{
-		"model_name": "acme/zdr-kimi",
-		"litellm_params": map[string]any{
-			"model":    "some-other-model",
-			"api_base": e.upstream.srv.URL + "/v1",
-		},
-	}
-	resp, body = e.request(t, "POST", "/model/new", e.adminKey, conflicting)
-	if resp.StatusCode != 409 || errorCode(t, body) != "alias_exists" {
-		t.Fatalf("conflicting deployment: %d %s", resp.StatusCode, body)
-	}
-
 	// A deployment on an already-known api_base reuses that provider (the
 	// seeded "fake" provider points at the same upstream).
 	_, body = e.request(t, "GET", "/admin/v1/providers", e.adminKey, nil)
@@ -159,5 +145,119 @@ func TestRootOpenAIAliases(t *testing.T) {
 	})
 	if resp.StatusCode != 200 || !strings.Contains(string(body), "embedding") {
 		t.Fatalf("POST /embeddings: %d %s", resp.StatusCode, body)
+	}
+}
+
+// A second deployment under one model_name becomes another target of that alias.
+func TestLiteLLMDeploymentsShareModelName(t *testing.T) {
+	e := newEnv(t)
+	other := strings.Replace(e.upstream.srv.URL, "127.0.0.1", "localhost", 1)
+	deploy := func(model, base string, weight int) (int, map[string]any) {
+		t.Helper()
+		params := map[string]any{"model": model, "api_base": base, "api_key": upstreamKey}
+		if weight > 0 {
+			params["weight"] = weight
+		}
+		resp, body := e.request(t, "POST", "/model/new", e.adminKey, map[string]any{
+			"model_name": "shared", "litellm_params": params,
+		})
+		return resp.StatusCode, decode(t, body)
+	}
+	idOf := func(view map[string]any) string {
+		info, _ := view["model_info"].(map[string]any)
+		id, _ := info["id"].(string)
+		return id
+	}
+	resolve := func() map[string]any {
+		t.Helper()
+		resp, body := e.request(t, "GET", "/admin/v1/resolve?model=shared", e.adminKey, nil)
+		if resp.StatusCode != 200 {
+			t.Fatalf("resolve: %d %s", resp.StatusCode, body)
+		}
+		return decode(t, body)
+	}
+	listing := func() []map[string]any {
+		t.Helper()
+		_, body := e.request(t, "GET", "/model/info", e.adminKey, nil)
+		var out []map[string]any
+		for _, d := range decode(t, body)["data"].([]any) {
+			dep := d.(map[string]any)
+			if strings.Contains(dep["model_name"].(string), "@") {
+				t.Fatalf("a target created for a deployment is listed on its own: %v", dep)
+			}
+			if dep["model_name"] == "shared" {
+				out = append(out, dep)
+			}
+		}
+		return out
+	}
+
+	code, first := deploy("m1", e.upstream.srv.URL+"/v1", 0)
+	if code != 200 {
+		t.Fatalf("first deployment: %d %v", code, first)
+	}
+	code, second := deploy("m2", other+"/v1", 3)
+	if code != 200 || second["model_name"] != "shared" || idOf(second) == "" || idOf(second) == idOf(first) {
+		t.Fatalf("second deployment: %d %v", code, second)
+	}
+	if code, again := deploy("m2", other+"/v1", 3); code != 200 || idOf(again) != idOf(second) {
+		t.Fatalf("re-register second: %d %v", code, again)
+	}
+	code, firstAgain := deploy("m1", e.upstream.srv.URL+"/v1", 0)
+	if code != 200 {
+		t.Fatalf("re-register first: %d %v", code, firstAgain)
+	}
+
+	plan := resolve()
+	targets, _ := plan["targets"].([]any)
+	if plan["strategy"] != "weighted" || len(targets) != 2 {
+		t.Fatalf("plan after two deployments: %v", plan)
+	}
+	if w := targets[1].(map[string]any)["weight"]; w != float64(3) {
+		t.Fatalf("weight from litellm_params: %v", w)
+	}
+
+	deps := listing()
+	if len(deps) != 2 {
+		t.Fatalf("/model/info deployments: %v", deps)
+	}
+	models := map[string]string{}
+	for _, d := range deps {
+		models[d["litellm_params"].(map[string]any)["model"].(string)] = idOf(d)
+	}
+	if models["m2"] != idOf(second) || models["m1"] == "" || models["m1"] != idOf(firstAgain) {
+		t.Fatalf("/model/info ids: %v", models)
+	}
+
+	resp, body := e.request(t, "POST", "/v1/chat/completions", e.memberKey, map[string]any{
+		"model": "shared", "messages": []map[string]any{{"role": "user", "content": "hi"}},
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("chat through shared: %d %s", resp.StatusCode, body)
+	}
+
+	resp, body = e.request(t, "POST", "/model/delete", e.adminKey, map[string]any{"id": idOf(second)})
+	if resp.StatusCode != 200 || decode(t, body)["model_name"] != "shared" {
+		t.Fatalf("delete one deployment: %d %s", resp.StatusCode, body)
+	}
+	plan = resolve()
+	if plan["strategy"] != nil || plan["upstream_name"] != "m1" {
+		t.Fatalf("plan after delete: %v", plan)
+	}
+	deps = listing()
+	if len(deps) != 1 || deps[0]["litellm_params"].(map[string]any)["model"] != "m1" {
+		t.Fatalf("/model/info after delete: %v", deps)
+	}
+
+	resp, body = e.request(t, "POST", "/model/delete", e.adminKey, map[string]any{"id": idOf(deps[0])})
+	if resp.StatusCode != 200 {
+		t.Fatalf("delete last deployment: %d %s", resp.StatusCode, body)
+	}
+	if deps = listing(); len(deps) != 0 {
+		t.Fatalf("/model/info after deleting all: %v", deps)
+	}
+	_, body = e.request(t, "GET", "/admin/v1/models", e.adminKey, nil)
+	if strings.Contains(string(body), "shared") {
+		t.Fatalf("models left behind: %s", body)
 	}
 }
