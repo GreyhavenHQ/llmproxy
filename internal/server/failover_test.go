@@ -132,6 +132,36 @@ func TestFailoverOnRefusedConnection(t *testing.T) {
 	if !strings.Contains(string(metrics), `llmproxy_failover_total{model="ha",provider="dead",reason="unreachable"} 1`) {
 		t.Fatalf("failover metric missing:\n%s", metrics)
 	}
+
+	_, logBody := e.request(t, "GET", "/stats/requests?model=ha", e.adminKey, nil)
+	flags := map[string]bool{}
+	for _, row := range decode(t, logBody)["requests"].([]any) {
+		entry := row.(map[string]any)
+		flags[entry["outcome"].(string)] = entry["failed_over"] == true
+	}
+	if !flags["unreachable"] || flags["ok"] {
+		t.Fatalf("failed_over flags in the request log: %v %s", flags, logBody)
+	}
+
+	if resp, body := e.request(t, "POST", "/admin/v1/models", e.adminKey,
+		map[string]any{"alias": "one", "target": "alpha"}); resp.StatusCode != 201 {
+		t.Fatalf("create one: %d %s", resp.StatusCode, body)
+	}
+	_, modelsBody := e.request(t, "GET", "/v1/models", e.memberKey, nil)
+	for _, m := range decode(t, modelsBody)["data"].([]any) {
+		entry := m.(map[string]any)
+		switch entry["id"] {
+		case "ha":
+			targets, _ := entry["targets"].([]any)
+			if entry["strategy"] != "failover" || len(targets) != 2 || targets[0] != "dead-m" || targets[1] != "alpha" {
+				t.Fatalf("ha in /v1/models: %v", entry)
+			}
+		case "one":
+			if entry["alias_of"] != "alpha" || entry["targets"] != nil || entry["strategy"] != nil {
+				t.Fatalf("one in /v1/models: %v", entry)
+			}
+		}
+	}
 }
 
 func TestFailoverOnRetryableStatus(t *testing.T) {

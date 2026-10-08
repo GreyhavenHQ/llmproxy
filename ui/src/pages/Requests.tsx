@@ -561,6 +561,11 @@ export function Requests() {
                       <TableCell>
                         <span className="flex items-center gap-1.5">
                           <OutcomeBadge row={r} />
+                          {r.failed_over && (
+                            <Badge variant="muted" title="Another target answered this request.">
+                              failed over
+                            </Badge>
+                          )}
                           {r.streamed && (
                             <span title="streamed">
                               <Zap className="size-3 text-muted-foreground" aria-label="streamed" />

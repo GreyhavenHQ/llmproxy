@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { api, type DiscoveredModel, type Model, type Provider } from '@/lib/api'
+import {
+  api,
+  type AliasTarget,
+  type DiscoveredModel,
+  type Model,
+  type Provider,
+} from '@/lib/api'
 import { useAsync } from '@/lib/useAsync'
+import { STRATEGIES, strategyLabel } from '@/lib/strategies'
 import { Combobox, type ComboboxOption } from '@/components/Combobox'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -43,7 +50,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { Eye, EyeOff, Pencil, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Eye, EyeOff, Pencil, Plus, Trash2, X } from 'lucide-react'
 
 // vision is declarative: it tells callers the model reads images, and gates
 // nothing. The others gate the endpoints of the same name.
@@ -183,7 +190,8 @@ interface ModelForm {
   alias: string
   provider: string
   upstream_name: string
-  target: string
+  targets: AliasTarget[]
+  strategy: string
   capabilities: string[]
   prices: PriceForm
 }
@@ -196,8 +204,140 @@ interface EditState extends ModelForm {
 // hop, so an alias never targets another alias.
 function targetOptions(models: Model[], self?: string): ComboboxOption[] {
   return models
-    .filter((m) => m.target === null && m.alias !== self)
+    .filter((m) => m.target === null && m.targets.length === 0 && m.alias !== self)
     .map((m) => ({ value: m.alias, hint: `${m.provider} · ${m.upstream_name}` }))
+}
+
+function filledTargets(targets: AliasTarget[]): AliasTarget[] {
+  return targets
+    .map((t) => ({ alias: t.alias.trim(), weight: t.weight }))
+    .filter((t) => t.alias !== '')
+}
+
+// An ordered list of targets. The strategy appears once there are two.
+function TargetsField({
+  id,
+  targets,
+  strategy,
+  options,
+  onChange,
+  note,
+}: {
+  id: string
+  targets: AliasTarget[]
+  strategy: string
+  options: ComboboxOption[]
+  onChange: (targets: AliasTarget[], strategy: string) => void
+  note?: string
+}) {
+  const several = filledTargets(targets).length > 1
+  const set = (next: AliasTarget[]) => onChange(next, strategy)
+  const move = (i: number, step: number) => {
+    const next = [...targets]
+    ;[next[i], next[i + step]] = [next[i + step], next[i]]
+    set(next)
+  }
+  return (
+    <div className="flex flex-col gap-2 sm:col-span-2">
+      <Label htmlFor={`${id}-target-0`}>
+        {targets.length > 1 ? 'Models it points at' : 'Model it points at'}
+      </Label>
+      {targets.map((t, i) => (
+        <div key={i} className="flex items-center gap-1">
+          <Combobox
+            id={`${id}-target-${i}`}
+            className="flex-1"
+            value={t.alias}
+            onChange={(v) => set(targets.map((x, j) => (j === i ? { ...x, alias: v } : x)))}
+            options={options.filter(
+              (o) => o.value === t.alias || !targets.some((x) => x.alias === o.value),
+            )}
+            note={note}
+          />
+          {several && strategy === 'weighted' && (
+            <Input
+              type="number"
+              min={1}
+              aria-label={`Weight of target ${i + 1}`}
+              title="Weight"
+              className="w-20"
+              value={t.weight}
+              onChange={(e) =>
+                set(
+                  targets.map((x, j) =>
+                    j === i ? { ...x, weight: Math.max(1, Number(e.target.value) || 1) } : x,
+                  ),
+                )
+              }
+            />
+          )}
+          {targets.length > 1 && (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Move target ${i + 1} up`}
+                disabled={i === 0}
+                onClick={() => move(i, -1)}
+              >
+                <ArrowUp />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Move target ${i + 1} down`}
+                disabled={i === targets.length - 1}
+                onClick={() => move(i, 1)}
+              >
+                <ArrowDown />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Remove target ${i + 1}`}
+                onClick={() => set(targets.filter((_, j) => j !== i))}
+              >
+                <X />
+              </Button>
+            </>
+          )}
+        </div>
+      ))}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => set([...targets, { alias: '', weight: 1 }])}
+        >
+          <Plus />
+          Add target
+        </Button>
+        {several && (
+          <>
+            <Select value={strategy} onValueChange={(v) => onChange(targets, v)}>
+              <SelectTrigger size="sm" className="w-36" aria-label="Strategy">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STRATEGIES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-muted-foreground">
+              {STRATEGIES.find((s) => s.value === strategy)?.hint}
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // Both kinds stay visible side by side; the fields below follow the choice.
@@ -280,7 +420,8 @@ export function Models() {
     alias: '',
     provider: '',
     upstream_name: '',
-    target: '',
+    targets: [{ alias: '', weight: 1 }],
+    strategy: 'failover',
     capabilities: ['chat', 'chat_stream'],
     prices: {},
   })
@@ -306,18 +447,21 @@ export function Models() {
   }, [form.kind, form.provider, form.upstream_name, newDiscovery.loading, newDiscovery.options])
 
   // The two kinds send different bodies; everything else is shared.
-  const routing = (f: ModelForm) =>
-    f.kind === 'alias'
-      ? { target: f.target.trim() }
-      : {
-          provider: f.provider,
-          upstream_name: f.upstream_name.trim(),
-          capabilities: f.capabilities,
-        }
+  const routing = (f: ModelForm) => {
+    if (f.kind === 'alias') {
+      const targets = filledTargets(f.targets)
+      return targets.length > 1 ? { targets, strategy: f.strategy } : { targets }
+    }
+    return {
+      provider: f.provider,
+      upstream_name: f.upstream_name.trim(),
+      capabilities: f.capabilities,
+    }
+  }
 
   const invalid = (f: ModelForm): string | null => {
     if (f.kind === 'alias') {
-      if (f.target.trim() === '') return 'Pick the model this one points at'
+      if (filledTargets(f.targets).length === 0) return 'Pick the model this one points at'
       if (f.alias.trim() === '') return 'An alias for another model needs its own name'
       return null
     }
@@ -348,7 +492,14 @@ export function Models() {
         pricing: Object.keys(prices).length > 0 ? prices : undefined,
       })
       toast.success(`Model "${alias}" bound`)
-      setForm({ ...form, alias: '', upstream_name: '', target: '', prices: {} })
+      setForm({
+        ...form,
+        alias: '',
+        upstream_name: '',
+        targets: [{ alias: '', weight: 1 }],
+        strategy: 'failover',
+        prices: {},
+      })
       models.reload()
     } catch (err) {
       toast.error(errMsg(err))
@@ -378,8 +529,7 @@ export function Models() {
         alias: editing.alias.trim(),
         // An empty target turns an alias back into its own binding, which is
         // why the provider fields ride along.
-        target: editing.kind === 'alias' ? editing.target.trim() : '',
-        ...(editing.kind === 'alias' ? {} : routing(editing)),
+        ...(editing.kind === 'alias' ? routing(editing) : { target: '', ...routing(editing) }),
         pricing: prices,
       })
       toast.success(
@@ -486,20 +636,18 @@ export function Models() {
                   </div>
                 </>
               ) : (
-                <div className="flex flex-col gap-2 sm:col-span-2">
-                  <Label htmlFor="m-target">Model it points at</Label>
-                  <Combobox
-                    id="m-target"
-                    value={form.target}
-                    onChange={(v) => setForm({ ...form, target: v })}
-                    options={targetOptions(allModels)}
-                    note={
-                      allModels.some((m) => m.target === null)
-                        ? undefined
-                        : 'Bind a provider model first; an alias points at one of those.'
-                    }
-                  />
-                </div>
+                <TargetsField
+                  id="m"
+                  targets={form.targets}
+                  strategy={form.strategy}
+                  options={targetOptions(allModels)}
+                  onChange={(targets, strategy) => setForm({ ...form, targets, strategy })}
+                  note={
+                    targetOptions(allModels).length > 0
+                      ? undefined
+                      : 'Bind a provider model first; an alias points at one of those.'
+                  }
+                />
               )}
               {form.kind === 'provider' && nameField}
             </div>
@@ -528,7 +676,7 @@ export function Models() {
                   busy ||
                   (form.kind === 'provider'
                     ? form.provider === '' || form.upstream_name.trim() === ''
-                    : form.target.trim() === '' || form.alias.trim() === '')
+                    : filledTargets(form.targets).length === 0 || form.alias.trim() === '')
                 }
               >
                 {busy && <Spinner />}
@@ -616,15 +764,15 @@ export function Models() {
                                 </div>
                               </>
                             ) : (
-                              <div className="flex flex-col gap-2 sm:col-span-2">
-                                <Label htmlFor="edit-target">Model it points at</Label>
-                                <Combobox
-                                  id="edit-target"
-                                  value={editing.target}
-                                  onChange={(v) => setEditing({ ...editing, target: v })}
-                                  options={targetOptions(allModels, editing.original)}
-                                />
-                              </div>
+                              <TargetsField
+                                id="edit"
+                                targets={editing.targets}
+                                strategy={editing.strategy}
+                                options={targetOptions(allModels, editing.original)}
+                                onChange={(targets, strategy) =>
+                                  setEditing({ ...editing, targets, strategy })
+                                }
+                              />
                             )}
                             <div className="flex flex-col gap-2">
                               <Label htmlFor="edit-alias">Name</Label>
@@ -684,7 +832,19 @@ export function Models() {
                       </TableCell>
                       <TableCell className="wrap-anywhere">{m.provider}</TableCell>
                       <TableCell className="font-mono text-xs wrap-anywhere">
-                        {m.target ? (
+                        {m.targets.length > 1 ? (
+                          <span className="flex flex-col">
+                            {m.targets.map((t) => (
+                              <span key={t.alias}>
+                                → {t.alias}
+                                {m.strategy === 'weighted' && (
+                                  <span className="text-muted-foreground"> ×{t.weight}</span>
+                                )}
+                              </span>
+                            ))}
+                            <span className="font-sans text-muted-foreground">{strategyLabel(m.strategy)}</span>
+                          </span>
+                        ) : m.target ? (
                           // An alias shows what it points at, and under it
                           // where that lands.
                           <span className="flex flex-col">
@@ -724,11 +884,15 @@ export function Models() {
                           onClick={() =>
                             setEditing({
                               original: m.alias,
-                              kind: m.target ? 'alias' : 'provider',
+                              kind: m.target || m.targets.length > 0 ? 'alias' : 'provider',
                               alias: m.alias,
                               provider: m.provider,
                               upstream_name: m.upstream_name,
-                              target: m.target ?? '',
+                              targets:
+                                m.targets.length > 0
+                                  ? m.targets.map((t) => ({ ...t }))
+                                  : [{ alias: m.target ?? '', weight: 1 }],
+                              strategy: m.strategy ?? 'failover',
                               capabilities: [...m.capabilities],
                               // Inherited prices show as blank so saving
                               // keeps inheriting; a typed value overrides.

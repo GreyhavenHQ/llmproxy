@@ -20,6 +20,7 @@ import {
 import { addBuckets, floorBucket, RANGES } from '@/lib/timerange'
 import { useAsync } from '@/lib/useAsync'
 import { useQueryParam } from '@/lib/useQueryParam'
+import { strategyLabel } from '@/lib/strategies'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -247,6 +248,12 @@ export function ModelsCatalog() {
                         {r.model.alias_of && (
                           <span className="font-mono text-xs text-muted-foreground">
                             → {r.model.alias_of}
+                          </span>
+                        )}
+                        {r.model.targets && (
+                          <span className="font-mono text-xs text-muted-foreground">
+                            → {r.model.targets.join(', ')}{' '}
+                            <span className="font-sans">· {strategyLabel(r.model.strategy)}</span>
                           </span>
                         )}
                       </span>

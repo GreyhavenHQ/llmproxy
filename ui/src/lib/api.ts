@@ -164,6 +164,11 @@ export interface RateLimitSnapshot {
   reset_tokens_at?: string
 }
 
+export interface AliasTarget {
+  alias: string
+  weight: number
+}
+
 export interface Model {
   alias: string
   // provider, upstream_name and capabilities are always the resolved ones:
@@ -173,6 +178,10 @@ export interface Model {
   upstream_name: string
   capabilities: string[]
   target: string | null
+  // targets lists an alias with several targets in order; it is empty
+  // otherwise, and strategy is null.
+  targets: AliasTarget[]
+  strategy: string | null
   origin: string
   created_at: string
   // Prices per million units, keyed by unit; a unit without an entry is
@@ -207,6 +216,9 @@ export interface CatalogModel {
   owned_by: string
   capabilities: string[]
   alias_of: string | null
+  // targets and strategy are set on an alias with several targets.
+  targets: string[] | null
+  strategy: string | null
   // Only ever true on a list fetched with include_hidden=1; the plain list
   // leaves hidden models out.
   hidden: boolean
@@ -239,6 +251,8 @@ export interface RequestRow {
   status_code: number | null
   streamed: boolean
   cancelled: boolean
+  // failed_over marks an attempt given up on before another target was tried.
+  failed_over: boolean
   cost: number | null
   unpriced: boolean
   duration_ms: number

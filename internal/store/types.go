@@ -206,6 +206,7 @@ type RequestLogRow struct {
 	StatusCode    sql.NullInt64
 	Streamed      bool
 	Cancelled     bool
+	FailedOver    bool
 	Cost          sql.NullFloat64
 	Unpriced      bool
 	DurationMs    int64

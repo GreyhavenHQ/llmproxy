@@ -58,9 +58,16 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		// capabilities and alias_of are extensions to the OpenAI shape:
 		// curated catalog metadata, no credentials, ignored by clients that
 		// only read id.
-		var aliasOf any
+		var aliasOf, targets, strategy any
 		if b.TargetAlias != "" {
 			aliasOf = b.TargetAlias
+		}
+		if len(b.Targets) > 1 {
+			names := make([]string, 0, len(b.Targets))
+			for _, t := range b.Targets {
+				names = append(names, t.Alias)
+			}
+			targets, strategy = names, b.Strategy
 		}
 		entry := map[string]any{
 			"id":           b.Alias,
@@ -69,6 +76,8 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			"owned_by":     b.ProviderName,
 			"capabilities": splitCapabilitySet(b.CapabilitySet),
 			"alias_of":     aliasOf,
+			"targets":      targets,
+			"strategy":     strategy,
 			"hidden":       b.Hidden,
 		}
 		// Prices are what the proxy bills this model at, per million units, so

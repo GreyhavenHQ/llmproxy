@@ -983,7 +983,7 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request, auth *Aut
 			"provider":       rt.ProviderName,
 			"upstream_name":  rt.UpstreamName,
 			"url":            rt.EndpointURL(endpoint),
-			"weight":         rt.Weight,
+			"weight":         max(rt.Weight, 1),
 			"cooling_down":   cooling,
 			"cooldown_until": nil,
 		}
@@ -1306,6 +1306,7 @@ func (s *Server) serveRequestLog(w http.ResponseWriter, r *http.Request) {
 			"status_code": nil,
 			"streamed":    ev.Streamed,
 			"cancelled":   ev.Cancelled,
+			"failed_over": ev.FailedOver,
 			"cost":        nil,
 			"unpriced":    ev.Unpriced,
 			"duration_ms": ev.DurationMs,

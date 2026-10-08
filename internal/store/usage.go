@@ -102,7 +102,7 @@ func (s *Store) ListRequests(ctx context.Context, f UsageFilter, limit, offset i
 	rows, err := s.db.QueryContext(ctx, s.q(`
 		SELECT e.id, e.ts, COALESCE(pp.name, e.principal_id), `+providerNameSQL+`, e.alias, e.endpoint,
 			e.client, e.tags, e.api_key_id, COALESCE(k.label, ''), COALESCE(k.key_suffix, ''), e.outcome,
-			e.error_kind, e.status_code, e.streamed, e.cancelled, e.cost, e.unpriced, e.duration_ms, e.ttft_ms
+			e.error_kind, e.status_code, e.streamed, e.cancelled, e.cost, e.unpriced, e.duration_ms, e.ttft_ms, e.failed_over
 		FROM usage_event e
 			LEFT JOIN principal pp ON e.principal_id = pp.id
 			LEFT JOIN provider p ON e.provider_id = p.id
@@ -117,15 +117,16 @@ func (s *Store) ListRequests(ctx context.Context, f UsageFilter, limit, offset i
 	ids := make([]any, 0, limit)
 	for rows.Next() {
 		var r RequestLogRow
-		var streamed, cancelled, unpriced int64
+		var streamed, cancelled, unpriced, failedOver int64
 		if err := rows.Scan(&r.ID, &r.TS, &r.PrincipalName, &r.Provider, &r.Alias, &r.Endpoint,
 			&r.Client, &r.Tags, &r.APIKeyID, &r.KeyLabel, &r.KeySuffix, &r.Outcome,
-			&r.ErrorKind, &r.StatusCode, &streamed, &cancelled, &r.Cost, &unpriced, &r.DurationMs, &r.TTFTMs); err != nil {
+			&r.ErrorKind, &r.StatusCode, &streamed, &cancelled, &r.Cost, &unpriced, &r.DurationMs, &r.TTFTMs, &failedOver); err != nil {
 			return nil, err
 		}
 		r.Streamed = streamed != 0
 		r.Cancelled = cancelled != 0
 		r.Unpriced = unpriced != 0
+		r.FailedOver = failedOver != 0
 		r.Units = make(map[string]float64)
 		index[r.ID] = len(out)
 		ids = append(ids, r.ID)
