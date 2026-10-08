@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -147,9 +148,6 @@ func (s *Server) proxyCompletion(w http.ResponseWriter, r *http.Request, auth *A
 		writeProxyError(w, rerr)
 		return
 	}
-	route := plan.Routes[0]
-
-	fields["model"], _ = json.Marshal(route.UpstreamName)
 	if stream {
 		var opts map[string]any
 		if raw, ok := fields["stream_options"]; ok {
@@ -161,10 +159,26 @@ func (s *Server) proxyCompletion(w http.ResponseWriter, r *http.Request, auth *A
 		opts["include_usage"] = true
 		fields["stream_options"], _ = json.Marshal(opts)
 	}
+	routes := s.balancer.Order(plan)
+	for i, route := range routes {
+		if s.attempt(w, r, auth, endpoint, fields, stream, route, i+1, i == len(routes)-1) {
+			return
+		}
+	}
+}
+
+// failoverBodyBytes bounds what is read from a failed attempt to classify its error.
+const failoverBodyBytes = 64 << 10
+
+// attempt sends the request to one alias target. It returns false when the
+// caller must try the next target, which only happens before any byte is written.
+func (s *Server) attempt(w http.ResponseWriter, r *http.Request, auth *Auth, endpoint string,
+	fields map[string]json.RawMessage, stream bool, route *catalog.Route, n int, last bool) bool {
+	fields["model"], _ = json.Marshal(route.UpstreamName)
 	outBody, err := json.Marshal(fields)
 	if err != nil {
 		writeProxyError(w, apierr.New(400, "invalid_json", "request body could not be re-encoded"))
-		return
+		return true
 	}
 
 	reqCtx := r.Context()
@@ -177,7 +191,7 @@ func (s *Server) proxyCompletion(w http.ResponseWriter, r *http.Request, auth *A
 		route.EndpointURL(endpoint), bytes.NewReader(outBody))
 	if err != nil {
 		writeProxyError(w, apierr.New(500, "internal_error", "failed to build upstream request"))
-		return
+		return true
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
@@ -185,34 +199,64 @@ func (s *Server) proxyCompletion(w http.ResponseWriter, r *http.Request, auth *A
 		req.Header.Set("Authorization", "Bearer "+route.Credential)
 	}
 
+	defer s.balancer.Acquire(route)()
+	w.Header().Set("x-llmproxy-attempts", strconv.Itoa(n))
 	started := time.Now()
 	resp, err := s.pool.ClientFor(route).Do(req)
 	if err != nil {
 		// A caller that hung up before the upstream answered is a
 		// cancellation, not a provider failure.
-		outcome, cancelled, kind := "unreachable", false, errClass(err)
 		if r.Context().Err() != nil {
-			outcome, cancelled, kind = "cancelled", true, ""
+			s.recordUsageAsync(auth, route, endpoint, usageOutcome{
+				Outcome: "cancelled", Cancelled: true, Streamed: stream,
+				DurationMs: time.Since(started).Milliseconds(),
+			})
+			writeProxyError(w, apierr.Newf(502, "provider_unreachable",
+				"request to provider '%s' failed: %s", route.ProviderName, errClass(err)))
+			return true
 		}
 		s.recordUsageAsync(auth, route, endpoint, usageOutcome{
-			Outcome: outcome, ErrorKind: kind, Cancelled: cancelled, Streamed: stream,
-			DurationMs: time.Since(started).Milliseconds(),
+			Outcome: "unreachable", ErrorKind: errClass(err), Streamed: stream,
+			DurationMs: time.Since(started).Milliseconds(), FailedOver: !last,
 		})
+		if !last {
+			s.failOver(route, "unreachable")
+			return false
+		}
 		writeProxyError(w, apierr.Newf(502, "provider_unreachable",
 			"request to provider '%s' failed: %s", route.ProviderName, errClass(err)))
-		return
+		return true
 	}
 	defer resp.Body.Close()
 
+	if !last && (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, failoverBodyBytes))
+		s.observeRateLimit(resp, route)
+		s.recordUsageAsync(auth, route, endpoint, usageOutcome{
+			StatusCode: resp.StatusCode, Outcome: "upstream_error", ErrorKind: errorKindFromBody(data),
+			Streamed: stream, DurationMs: time.Since(started).Milliseconds(), FailedOver: true,
+		})
+		s.failOver(route, strconv.Itoa(resp.StatusCode))
+		return false
+	}
+
 	w.Header().Set("x-llmproxy-provider", route.ProviderName)
 	w.Header().Set("x-llmproxy-model", route.UpstreamName)
-	s.observeRateLimit(w, resp, route)
+	if reading := s.observeRateLimit(resp, route); reading != nil {
+		setRateLimitResponseHeaders(w, reading)
+	}
 
 	if !stream || resp.StatusCode >= 400 {
 		s.relayUnary(w, auth, route, endpoint, resp, stream, started)
-		return
+		return true
 	}
 	s.relayStream(w, r, auth, route, endpoint, resp, started)
+	return true
+}
+
+func (s *Server) failOver(route *catalog.Route, reason string) {
+	s.balancer.Fail(route)
+	s.metrics.ObserveFailover(route.ProviderName, route.Alias, reason)
 }
 
 // maxUnaryResponseBytes caps buffered upstream bodies. Oversize responses are

@@ -48,7 +48,11 @@ func TestMarkerNeverReachesDisk(t *testing.T) {
 		t.Fatal("chat failed")
 	}
 	e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Outcome == "ok" })
+	assertNoMarkerOnDisk(t, e)
+}
 
+func assertNoMarkerOnDisk(t *testing.T, e *env) {
+	t.Helper()
 	// Flush the WAL so everything SQLite knows about is in the main file.
 	if _, err := e.st.DB().Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 		t.Fatal(err)

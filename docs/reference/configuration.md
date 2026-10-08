@@ -30,6 +30,7 @@ default, so check the value when a setting looks like it was ignored.
 | `LLMPROXY_ADMIN_PASSWORD_FILE` | `.llmproxy/admin-password` | Where the generated admin password lives (created mode 0600). Ignored when `LLMPROXY_ADMIN_PASSWORD` is set |
 | `LLMPROXY_ADMIN_PASSWORD_DISABLED` | `false` | Disable password login entirely, for SSO-only deployments |
 | `LLMPROXY_CATALOG_TTL` | `5s` | Alias-resolution cache TTL. Admin API mutations invalidate the cache immediately; this TTL bounds staleness for changes made directly in the database or from another instance |
+| `LLMPROXY_FAILOVER_COOLDOWN` | `30s` | How long an alias target that failed goes to the end of the order. `0` disables the cooldown. Kept per replica |
 | `LLMPROXY_MAX_BODY_BYTES` | `10485760` (10 MiB) | Request body ceiling on the `/v1` endpoints. Oversize requests get 413 `request_too_large` |
 | `LLMPROXY_MAX_EMBEDDING_BATCH` | `2048` | Maximum items in an embeddings `input` array. `0` or negative disables the check |
 | `LLMPROXY_PRICING_FILE` | empty | Path to a pricing feed JSON loaded at startup. Stored only when its `version` differs from the active feed. Format in [pricing](../guides/pricing.md#load-a-whole-price-list) |

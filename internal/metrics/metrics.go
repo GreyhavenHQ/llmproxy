@@ -55,6 +55,11 @@ func (m *Metrics) ObserveRequest(endpoint, provider, alias, outcome string, dura
 	m.Inc("llmproxy_request_seconds_count", append([][2]string{}, base...), 1)
 }
 
+// ObserveFailover counts one alias target given up on. reason is "unreachable" or the status code.
+func (m *Metrics) ObserveFailover(provider, alias, reason string) {
+	m.Inc("llmproxy_failover_total", [][2]string{{"provider", provider}, {"model", alias}, {"reason", reason}}, 1)
+}
+
 func (m *Metrics) ObserveUnits(provider, alias, unit string, quantity float64, priced bool) {
 	m.Inc("llmproxy_usage_units_total",
 		[][2]string{{"provider", provider}, {"model", alias}, {"unit", unit}}, quantity)

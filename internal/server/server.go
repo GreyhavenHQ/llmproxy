@@ -32,9 +32,11 @@ type Server struct {
 	store   *store.Store
 	secret  []byte
 	catalog *catalog.Catalog
-	pool    *upstream.Pool
-	metrics *metrics.Metrics
-	pricing atomic.Pointer[pricing.Index]
+	// balancer orders alias targets and tracks cooldowns, per replica.
+	balancer *catalog.Balancer
+	pool     *upstream.Pool
+	metrics  *metrics.Metrics
+	pricing  atomic.Pointer[pricing.Index]
 
 	// transparent is the HTTP client for the transparent Anthropic relay;
 	// separate from the provider pool because there is no provider row.
@@ -69,6 +71,7 @@ func New(cfg config.Config, st *store.Store, secret []byte) *Server {
 		store:        st,
 		secret:       secret,
 		catalog:      catalog.New(st, secret, cfg.CatalogTTL),
+		balancer:     catalog.NewBalancer(cfg.FailoverCooldown),
 		pool:         upstream.New(),
 		metrics:      metrics.New(),
 		rateLimits:   NewRateLimitTracker(),
