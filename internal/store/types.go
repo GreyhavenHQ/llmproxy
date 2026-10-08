@@ -97,6 +97,27 @@ type ModelBinding struct {
 	// TargetAlias is empty for a direct binding.
 	TargetAlias  string
 	ProviderName string
+	// Strategy is set only on an alias with two or more targets.
+	Strategy string
+	// Targets lists an alias's targets in order, empty for a direct binding.
+	// On write, two or more targets use the target table, one sets TargetID.
+	Targets []BindingTarget
+}
+
+type BindingTarget struct {
+	ID       string
+	Alias    string
+	Provider string
+	Weight   int
+}
+
+// ResolvedTarget is one servable target of an alias, or the binding itself
+// when it routes directly.
+type ResolvedTarget struct {
+	Binding   *ModelBinding
+	Provider  *Provider
+	Overrides map[string]string
+	Weight    int
 }
 
 type UsageEvent struct {
@@ -128,7 +149,8 @@ type UsageEvent struct {
 	DurationMs int64
 	// TTFTMs is the time to the first content event of a stream. Null on
 	// unary requests and on streams that ended before any content.
-	TTFTMs sql.NullInt64
+	TTFTMs     sql.NullInt64
+	FailedOver bool
 }
 
 type UsageQuantity struct {
@@ -185,6 +207,7 @@ type RequestLogRow struct {
 	StatusCode    sql.NullInt64
 	Streamed      bool
 	Cancelled     bool
+	FailedOver    bool
 	Cost          sql.NullFloat64
 	Unpriced      bool
 	DurationMs    int64

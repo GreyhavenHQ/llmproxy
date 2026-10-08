@@ -126,6 +126,8 @@ type usageOutcome struct {
 	// TS is when the response ended, taken before the async hop so that
 	// TS minus DurationMs is the request's start.
 	TS string
+	// FailedOver marks an attempt given up on before another alias target was tried.
+	FailedOver bool
 }
 
 // extractUsage pulls the usage object out of a unary JSON response.
@@ -338,7 +340,9 @@ func (s *Server) priceAndInsert(ctx context.Context, ev *store.UsageEvent, provi
 	if pricedAny {
 		ev.Cost = sql.NullFloat64{Float64: cost, Valid: true}
 	}
-	s.metrics.ObserveRequest(ev.Endpoint, providerName, ev.Alias, ev.Outcome, ev.DurationMs)
+	if !ev.FailedOver {
+		s.metrics.ObserveRequest(ev.Endpoint, providerName, ev.Alias, ev.Outcome, ev.DurationMs)
+	}
 	if err := s.store.InsertUsageEvent(ctx, ev, rows); err != nil {
 		// Never let accounting failures break or block the data plane.
 		slog.Error("failed to record usage event", "error", err)
@@ -362,6 +366,7 @@ func (s *Server) recordUsage(ctx context.Context, auth *Auth, route *catalog.Rou
 		DurationMs:   rec.DurationMs,
 		TTFTMs:       rec.TTFTMs,
 		TS:           rec.TS,
+		FailedOver:   rec.FailedOver,
 	}
 	if rec.StatusCode != 0 {
 		ev.StatusCode = sql.NullInt64{Int64: int64(rec.StatusCode), Valid: true}

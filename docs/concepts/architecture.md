@@ -226,6 +226,15 @@ silent pick makes routing a mystery. A dry-run `resolve` endpoint answers
 another model, but only one hop, resolved in the same query, so lookup stays
 single-step and cycles are unrepresentable.
 
+### An alias with several targets fails over before the first byte
+
+An alias may list several targets with a declared strategy. The strategy is
+explicit, so the pick is never silent. The proxy tries the next target only
+before it writes a byte to the caller, because the body passes through
+unchanged and a partial response cannot be taken back. Rotation, in-flight
+counts and cooldowns are kept in memory per replica: they are hints about
+the near past, not state, and the database stays the source of truth.
+
 ### Admin mutations are audited in-transaction
 
 Every admin mutation writes a metadata-only `admin_event` row in the same

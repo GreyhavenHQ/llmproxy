@@ -23,11 +23,11 @@ func (s *Store) InsertUsageEvent(ctx context.Context, ev *UsageEvent, quantities
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, s.q(`
 		INSERT INTO usage_event (id, ts, principal_id, api_key_id, provider_id, alias, upstream_name,
-			endpoint, client, tags, status_code, outcome, error_kind, cancelled, streamed, cost, unpriced, duration_ms, ttft_ms)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			endpoint, client, tags, status_code, outcome, error_kind, cancelled, streamed, cost, unpriced, duration_ms, ttft_ms, failed_over)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		ev.ID, ev.TS, ev.PrincipalID, ev.APIKeyID, ev.ProviderID, ev.Alias, ev.UpstreamName,
 		ev.Endpoint, ev.Client, ev.Tags, ev.StatusCode, ev.Outcome, ev.ErrorKind, boolInt(ev.Cancelled), boolInt(ev.Streamed),
-		ev.Cost, boolInt(ev.Unpriced), ev.DurationMs, ev.TTFTMs); err != nil {
+		ev.Cost, boolInt(ev.Unpriced), ev.DurationMs, ev.TTFTMs, boolInt(ev.FailedOver)); err != nil {
 		return err
 	}
 	for _, q := range quantities {
@@ -45,7 +45,8 @@ func (s *Store) InsertUsageEvent(ctx context.Context, ev *UsageEvent, quantities
 func (s *Store) ListUsageEvents(ctx context.Context) ([]UsageEvent, error) {
 	rows, err := s.db.QueryContext(ctx, s.q(`
 		SELECT id, ts, principal_id, api_key_id, provider_id, alias, upstream_name, endpoint,
-			client, tags, status_code, outcome, error_kind, cancelled, streamed, cost, unpriced, duration_ms, ttft_ms
+			client, tags, status_code, outcome, error_kind, cancelled, streamed, cost, unpriced, duration_ms, ttft_ms,
+			failed_over
 		FROM usage_event ORDER BY ts`))
 	if err != nil {
 		return nil, err
@@ -54,12 +55,13 @@ func (s *Store) ListUsageEvents(ctx context.Context) ([]UsageEvent, error) {
 	var out []UsageEvent
 	for rows.Next() {
 		var ev UsageEvent
-		var cancelled, streamed, unpriced int64
+		var cancelled, streamed, unpriced, failedOver int64
 		if err := rows.Scan(&ev.ID, &ev.TS, &ev.PrincipalID, &ev.APIKeyID, &ev.ProviderID,
 			&ev.Alias, &ev.UpstreamName, &ev.Endpoint, &ev.Client, &ev.Tags, &ev.StatusCode, &ev.Outcome,
-			&ev.ErrorKind, &cancelled, &streamed, &ev.Cost, &unpriced, &ev.DurationMs, &ev.TTFTMs); err != nil {
+			&ev.ErrorKind, &cancelled, &streamed, &ev.Cost, &unpriced, &ev.DurationMs, &ev.TTFTMs, &failedOver); err != nil {
 			return nil, err
 		}
+		ev.FailedOver = failedOver != 0
 		ev.Cancelled = cancelled != 0
 		ev.Streamed = streamed != 0
 		ev.Unpriced = unpriced != 0
@@ -100,7 +102,7 @@ func (s *Store) ListRequests(ctx context.Context, f UsageFilter, limit, offset i
 	rows, err := s.db.QueryContext(ctx, s.q(`
 		SELECT e.id, e.ts, COALESCE(pp.name, e.principal_id), `+providerNameSQL+`, e.alias, e.endpoint,
 			e.client, e.tags, e.api_key_id, COALESCE(k.label, ''), COALESCE(k.key_suffix, ''), e.outcome,
-			e.error_kind, e.status_code, e.streamed, e.cancelled, e.cost, e.unpriced, e.duration_ms, e.ttft_ms
+			e.error_kind, e.status_code, e.streamed, e.cancelled, e.cost, e.unpriced, e.duration_ms, e.ttft_ms, e.failed_over
 		FROM usage_event e
 			LEFT JOIN principal pp ON e.principal_id = pp.id
 			LEFT JOIN provider p ON e.provider_id = p.id
@@ -115,15 +117,16 @@ func (s *Store) ListRequests(ctx context.Context, f UsageFilter, limit, offset i
 	ids := make([]any, 0, limit)
 	for rows.Next() {
 		var r RequestLogRow
-		var streamed, cancelled, unpriced int64
+		var streamed, cancelled, unpriced, failedOver int64
 		if err := rows.Scan(&r.ID, &r.TS, &r.PrincipalName, &r.Provider, &r.Alias, &r.Endpoint,
 			&r.Client, &r.Tags, &r.APIKeyID, &r.KeyLabel, &r.KeySuffix, &r.Outcome,
-			&r.ErrorKind, &r.StatusCode, &streamed, &cancelled, &r.Cost, &unpriced, &r.DurationMs, &r.TTFTMs); err != nil {
+			&r.ErrorKind, &r.StatusCode, &streamed, &cancelled, &r.Cost, &unpriced, &r.DurationMs, &r.TTFTMs, &failedOver); err != nil {
 			return nil, err
 		}
 		r.Streamed = streamed != 0
 		r.Cancelled = cancelled != 0
 		r.Unpriced = unpriced != 0
+		r.FailedOver = failedOver != 0
 		r.Units = make(map[string]float64)
 		index[r.ID] = len(out)
 		ids = append(ids, r.ID)
@@ -312,6 +315,9 @@ const providerNameSQL = `CASE WHEN p.name IS NOT NULL THEN p.name ` +
 // request log still show them.
 const completedSQL = ` AND (e.cancelled = 1 OR e.outcome = 'ok')`
 
+// servedSQL drops attempts that failed over to another target: the request is counted once.
+const servedSQL = ` AND e.failed_over = 0`
+
 // addQuantity accumulates one aggregated quantity into a units map,
 // normalising input_tokens to the non-cached input; see the comment on
 // anthropicProviderID.
@@ -407,6 +413,7 @@ func usageWhere(f UsageFilter) (string, []any) {
 // Empty principalID/since/until disable the corresponding filter.
 func (s *Store) UsageSummary(ctx context.Context, principalID, since, until string) ([]UsageSummaryRow, error) {
 	where, args := usageWhere(UsageFilter{PrincipalID: principalID, Since: since, Until: until})
+	where += servedSQL
 
 	rowsByKey := make(map[[3]string]*UsageSummaryRow)
 	events, err := s.db.QueryContext(ctx, s.q(`
@@ -542,6 +549,7 @@ func (s *Store) UsageSeries(ctx context.Context, f UsageFilter, hourly bool) ([]
 		bucket = "SUBSTR(e.ts, 1, 13)"
 	}
 	where, args := usageWhere(f)
+	where += servedSQL
 
 	// A cancelled request is its own outcome, so the three counts partition
 	// the total exactly.

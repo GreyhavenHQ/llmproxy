@@ -436,13 +436,79 @@ func modelView(b *store.ModelBinding, idx *pricing.Index) map[string]any {
 		"pricing":           prices,
 		"pricing_inherited": inherited,
 		"hidden":            b.Hidden,
+		"targets":           targetViews(b.Targets),
+		"strategy":          nil,
 	}
 	// provider, upstream_name and capabilities are the resolved ones either
 	// way; target says where they came from.
 	if b.TargetAlias != "" {
 		view["target"] = b.TargetAlias
 	}
+	if b.Strategy != "" {
+		view["strategy"] = b.Strategy
+	}
 	return view
+}
+
+func targetViews(targets []store.BindingTarget) []map[string]any {
+	out := make([]map[string]any, 0, len(targets))
+	for _, t := range targets {
+		out = append(out, map[string]any{"alias": t.Alias, "provider": t.Provider, "weight": t.Weight})
+	}
+	return out
+}
+
+// targetSpec is one entry of "targets": a model name, or {alias, weight}.
+type targetSpec struct {
+	Alias  string `json:"alias"`
+	Weight int    `json:"weight"`
+}
+
+func (t *targetSpec) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] == '"' {
+		return json.Unmarshal(data, &t.Alias)
+	}
+	type plain targetSpec
+	return json.Unmarshal(data, (*plain)(t))
+}
+
+// resolveTargets checks every target of an alias and settles its strategy.
+func (s *Server) resolveTargets(ctx context.Context, alias string, specs []targetSpec,
+	strategy string) ([]store.BindingTarget, string, *apierr.ProxyError) {
+	if strategy != "" && !catalog.IsStrategy(strategy) {
+		return nil, "", apierr.Newf(400, "invalid_strategy", "strategy must be one of %v", catalog.Strategies)
+	}
+	if strategy != "" && len(specs) < 2 {
+		return nil, "", apierr.New(400, "invalid_strategy", "a strategy needs two or more targets")
+	}
+	if len(specs) > 1 && strategy == "" {
+		strategy = "failover"
+	}
+	seen := make(map[string]bool)
+	out := make([]store.BindingTarget, 0, len(specs))
+	for _, spec := range specs {
+		if seen[spec.Alias] {
+			return nil, "", apierr.Newf(400, "invalid_target", "'%s' is listed twice", spec.Alias)
+		}
+		seen[spec.Alias] = true
+		if spec.Weight < 0 {
+			return nil, "", apierr.New(400, "invalid_target", "weight must be 1 or more")
+		}
+		target, perr := s.resolveTarget(ctx, alias, spec.Alias)
+		if perr != nil {
+			return nil, "", perr
+		}
+		out = append(out, store.BindingTarget{ID: target.ID, Alias: target.Alias, Weight: max(spec.Weight, 1)})
+	}
+	return out, strategy, nil
+}
+
+func targetNames(targets []store.BindingTarget) string {
+	names := make([]string, 0, len(targets))
+	for _, t := range targets {
+		names = append(names, "'"+t.Alias+"'")
+	}
+	return strings.Join(names, ", ")
 }
 
 // parsePricing validates a per-million price map from a request body. The map
@@ -494,10 +560,10 @@ func (s *Server) resolveTarget(ctx context.Context, alias, target string) (*stor
 	if binding == nil {
 		return nil, apierr.Newf(404, "model_not_found", "no model named '%s' to point at", target)
 	}
-	if binding.TargetID.Valid {
+	if len(binding.Targets) > 0 {
 		return nil, apierr.Newf(400, "invalid_target",
-			"'%s' is itself an alias for '%s'; point at that instead (aliases are one hop)",
-			target, binding.TargetAlias)
+			"'%s' is itself an alias for %s; point at that instead (aliases are one hop)",
+			target, targetNames(binding.Targets))
 	}
 	return binding, nil
 }
@@ -529,6 +595,8 @@ func (s *Server) handleModelCreate(w http.ResponseWriter, r *http.Request, auth 
 		Provider     string              `json:"provider"`
 		UpstreamName string              `json:"upstream_name"`
 		Target       string              `json:"target"`
+		Targets      []targetSpec        `json:"targets"`
+		Strategy     string              `json:"strategy"`
 		Capabilities []string            `json:"capabilities"`
 		Origin       string              `json:"origin"`
 		Pricing      map[string]*float64 `json:"pricing"`
@@ -538,12 +606,20 @@ func (s *Server) handleModelCreate(w http.ResponseWriter, r *http.Request, auth 
 		writeProxyError(w, perr)
 		return
 	}
-	// A model points either at a provider's model or at another model.
+	// A model points either at a provider's model or at other models.
 	alias := body.Alias
+	specs := body.Targets
 	if body.Target != "" {
+		if len(specs) > 0 {
+			writeProxyError(w, apierr.New(400, "invalid_target", "give either 'target' or 'targets', not both"))
+			return
+		}
+		specs = []targetSpec{{Alias: body.Target}}
+	}
+	if len(specs) > 0 {
 		if body.Provider != "" || body.UpstreamName != "" {
 			writeProxyError(w, apierr.New(400, "invalid_target",
-				"give either 'target' or 'provider' and 'upstream_name', not both"))
+				"give either targets or 'provider' and 'upstream_name', not both"))
 			return
 		}
 		if alias == "" {
@@ -551,6 +627,9 @@ func (s *Server) handleModelCreate(w http.ResponseWriter, r *http.Request, auth 
 				"an alias for another model needs its own name"))
 			return
 		}
+	} else if body.Strategy != "" {
+		writeProxyError(w, apierr.New(400, "invalid_strategy", "a strategy needs two or more targets"))
+		return
 	} else if body.UpstreamName == "" || len(body.UpstreamName) > 200 {
 		writeProxyError(w, apierr.New(400, "invalid_upstream_name",
 			"upstream_name is required (max 200 chars)"))
@@ -586,19 +665,15 @@ func (s *Server) handleModelCreate(w http.ResponseWriter, r *http.Request, auth 
 	}
 
 	binding := &store.ModelBinding{Alias: alias, Origin: body.Origin, Hidden: body.Hidden}
-	if body.Target != "" {
-		target, perr := s.resolveTarget(r.Context(), alias, body.Target)
+	if len(specs) > 0 {
+		// Provider, upstream name and capabilities all come from the targets.
+		targets, strategy, perr := s.resolveTargets(r.Context(), alias, specs, body.Strategy)
 		if perr != nil {
 			writeProxyError(w, perr)
 			return
 		}
-		// Provider, upstream name and capabilities all come from the target.
-		binding.TargetID = sql.NullString{String: target.ID, Valid: true}
-		binding.TargetAlias = target.Alias
-		binding.ProviderID = target.ProviderID
-		binding.ProviderName = target.ProviderName
-		binding.UpstreamName = target.UpstreamName
-		binding.CapabilitySet = target.CapabilitySet
+		binding.Targets = targets
+		binding.Strategy = strategy
 	} else {
 		capabilitySet, perr := normalizeCapabilities(body.Capabilities)
 		if perr != nil {
@@ -625,6 +700,10 @@ func (s *Server) handleModelCreate(w http.ResponseWriter, r *http.Request, auth 
 	audit := &store.Audit{Actor: auth.PrincipalID, Action: "model.create", TargetKind: "model", TargetRef: alias}
 	if err := s.store.CreateBinding(r.Context(), binding, audit); err != nil {
 		internalErr(w, "failed to create binding")
+		return
+	}
+	if binding, err = s.store.GetBindingByID(r.Context(), binding.ID); err != nil || binding == nil {
+		internalErr(w, "failed to load binding")
 		return
 	}
 	if body.Pricing != nil {
@@ -674,6 +753,8 @@ func (s *Server) handleModelPatch(w http.ResponseWriter, r *http.Request, auth *
 		Capabilities *[]string           `json:"capabilities"`
 		UpstreamName *string             `json:"upstream_name"`
 		Target       *string             `json:"target"`
+		Targets      *[]targetSpec       `json:"targets"`
+		Strategy     *string             `json:"strategy"`
 		Pricing      map[string]*float64 `json:"pricing"`
 		Hidden       *bool               `json:"hidden"`
 	}
@@ -691,32 +772,63 @@ func (s *Server) handleModelPatch(w http.ResponseWriter, r *http.Request, auth *
 		return
 	}
 	// Switching between the two kinds is an edit like any other: point the
-	// model at another model, or give it a provider of its own.
+	// model at other models, or give it a provider of its own.
+	specs := body.Targets
 	if body.Target != nil {
-		if *body.Target == "" {
-			binding.TargetID = sql.NullString{}
-			binding.TargetAlias = ""
-		} else {
-			target, perr := s.resolveTarget(r.Context(), binding.Alias, *body.Target)
-			if perr != nil {
-				writeProxyError(w, perr)
-				return
-			}
-			binding.TargetID = sql.NullString{String: target.ID, Valid: true}
-			binding.TargetAlias = target.Alias
-			binding.ProviderID = target.ProviderID
-			binding.ProviderName = target.ProviderName
-			binding.UpstreamName = target.UpstreamName
-			binding.CapabilitySet = target.CapabilitySet
+		if specs != nil {
+			writeProxyError(w, apierr.New(400, "invalid_target", "give either 'target' or 'targets', not both"))
+			return
+		}
+		specs = &[]targetSpec{}
+		if *body.Target != "" {
+			specs = &[]targetSpec{{Alias: *body.Target}}
 		}
 	}
-	if binding.TargetID.Valid {
+	cleared := specs != nil && len(*specs) == 0
+	switch {
+	case cleared:
+		binding.Targets = nil
+		binding.TargetID = sql.NullString{}
+		binding.TargetAlias = ""
+		binding.Strategy = ""
+		if body.Strategy != nil && *body.Strategy != "" {
+			writeProxyError(w, apierr.New(400, "invalid_strategy", "a strategy needs two or more targets"))
+			return
+		}
+	case specs != nil:
+		strategy := binding.Strategy
+		if body.Strategy != nil {
+			strategy = *body.Strategy
+		} else if len(*specs) < 2 {
+			strategy = ""
+		}
+		targets, strategy, perr := s.resolveTargets(r.Context(), binding.Alias, *specs, strategy)
+		if perr != nil {
+			writeProxyError(w, perr)
+			return
+		}
+		binding.Targets = targets
+		binding.Strategy = strategy
+	case body.Strategy != nil:
+		specs := make([]targetSpec, 0, len(binding.Targets))
+		for _, t := range binding.Targets {
+			specs = append(specs, targetSpec{Alias: t.Alias, Weight: t.Weight})
+		}
+		targets, strategy, perr := s.resolveTargets(r.Context(), binding.Alias, specs, *body.Strategy)
+		if perr != nil {
+			writeProxyError(w, perr)
+			return
+		}
+		binding.Targets = targets
+		binding.Strategy = strategy
+	}
+	if len(binding.Targets) > 0 {
 		// An alias owns nothing but its name and its price; the rest is the
-		// target's and would silently do nothing.
+		// targets' and would silently do nothing.
 		if body.Capabilities != nil || body.UpstreamName != nil || body.Provider != nil {
 			writeProxyError(w, apierr.Newf(400, "invalid_target",
-				"'%s' is an alias for '%s' and inherits its provider, model and capabilities; "+
-					"edit that one, or clear the target first", binding.Alias, binding.TargetAlias))
+				"'%s' is an alias for %s and inherits its provider, model and capabilities; "+
+					"edit that one, or clear the target first", binding.Alias, targetNames(binding.Targets)))
 			return
 		}
 	} else {
@@ -751,7 +863,7 @@ func (s *Server) handleModelPatch(w http.ResponseWriter, r *http.Request, auth *
 		}
 		// Clearing the target leaves a model with no route unless this call
 		// gave it one.
-		if body.Target != nil && *body.Target == "" && binding.UpstreamName == "" {
+		if cleared && binding.UpstreamName == "" {
 			writeProxyError(w, apierr.New(400, "invalid_upstream_name",
 				"clearing the target needs 'provider' and 'upstream_name' in the same call"))
 			return
@@ -788,6 +900,12 @@ func (s *Server) handleModelPatch(w http.ResponseWriter, r *http.Request, auth *
 		internalErr(w, "failed to update binding")
 		return
 	}
+	updated, err := s.store.GetBindingByID(r.Context(), binding.ID)
+	if err != nil || updated == nil {
+		internalErr(w, "failed to load binding")
+		return
+	}
+	binding = updated
 	renamed := binding.Alias != oldAlias
 	if body.Pricing != nil || renamed {
 		if body.Pricing == nil {
@@ -845,22 +963,47 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request, auth *Aut
 		endpoint = "chat"
 	}
 	stream := r.URL.Query().Get("stream") == "true"
-	route, perr := s.catalog.Resolve(r.Context(), model, endpoint, stream)
+	plan, perr := s.catalog.Resolve(r.Context(), model, endpoint, stream)
 	if perr != nil {
 		writeProxyError(w, perr)
 		return
 	}
-	caps := make([]string, 0, len(route.Capabilities))
-	for c := range route.Capabilities {
+	route := plan.Routes[0]
+	planCaps := plan.Capabilities()
+	caps := make([]string, 0, len(planCaps))
+	for c := range planCaps {
 		caps = append(caps, c)
 	}
 	sort.Strings(caps)
+	targets := make([]map[string]any, 0, len(plan.Routes))
+	for _, rt := range plan.Routes {
+		cooling, until := s.balancer.CoolingDown(rt)
+		t := map[string]any{
+			"alias":          rt.TargetKey(),
+			"provider":       rt.ProviderName,
+			"upstream_name":  rt.UpstreamName,
+			"url":            rt.EndpointURL(endpoint),
+			"weight":         max(rt.Weight, 1),
+			"cooling_down":   cooling,
+			"cooldown_until": nil,
+		}
+		if cooling {
+			t["cooldown_until"] = until.UTC().Format(time.RFC3339)
+		}
+		targets = append(targets, t)
+	}
+	var strategy any
+	if plan.Strategy != "" {
+		strategy = plan.Strategy
+	}
 	writeJSON(w, 200, map[string]any{
 		"alias":         route.Alias,
 		"provider":      route.ProviderName,
 		"upstream_name": route.UpstreamName,
 		"url":           route.EndpointURL(endpoint),
 		"capabilities":  caps,
+		"strategy":      strategy,
+		"targets":       targets,
 	})
 }
 
@@ -1163,6 +1306,7 @@ func (s *Server) serveRequestLog(w http.ResponseWriter, r *http.Request) {
 			"status_code": nil,
 			"streamed":    ev.Streamed,
 			"cancelled":   ev.Cancelled,
+			"failed_over": ev.FailedOver,
 			"cost":        nil,
 			"unpriced":    ev.Unpriced,
 			"duration_ms": ev.DurationMs,

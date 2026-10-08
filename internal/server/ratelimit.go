@@ -311,15 +311,15 @@ func (t *RateLimitTracker) Drain() []*store.RateLimitSample {
 // observeRateLimit is the single call site that reads upstream rate-limit
 // headers, updates the in-memory tracker, sets response headers, updates
 // Prometheus gauges, and flushes finished buckets to the store.
-func (s *Server) observeRateLimit(w http.ResponseWriter, resp *http.Response, route *catalog.Route) {
+// observeRateLimit records the upstream's rate-limit telemetry and returns the reading, or nil.
+func (s *Server) observeRateLimit(resp *http.Response, route *catalog.Route) *RateLimitReading {
 	reading := readRateLimitHeaders(resp.Header, route.RateLimitHeaders)
 	if reading == nil {
-		return
+		return nil
 	}
 	reading.ProviderID = route.ProviderID
 	reading.ProviderName = route.ProviderName
 
-	setRateLimitResponseHeaders(w, reading)
 	setRateLimitGauges(s.metrics, route.ProviderName, reading)
 
 	finished := s.rateLimits.Observe(reading, time.Now())
@@ -330,6 +330,7 @@ func (s *Server) observeRateLimit(w http.ResponseWriter, resp *http.Response, ro
 			}
 		})
 	}
+	return reading
 }
 
 func (s *Server) flushRateLimitSample(sample *store.RateLimitSample) {

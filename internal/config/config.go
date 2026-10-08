@@ -43,6 +43,7 @@ type Config struct {
 	AdminPasswordDisabled bool
 
 	CatalogTTL        time.Duration
+	FailoverCooldown  time.Duration
 	MaxBodyBytes      int64
 	MaxEmbeddingBatch int
 	PricingFile       string
@@ -79,6 +80,7 @@ func FromEnv() Config {
 		AdminPasswordFile:     envStr("LLMPROXY_ADMIN_PASSWORD_FILE", ".llmproxy/admin-password"),
 		AdminPasswordDisabled: envBool("LLMPROXY_ADMIN_PASSWORD_DISABLED", false),
 		CatalogTTL:            envDuration("LLMPROXY_CATALOG_TTL", 5*time.Second),
+		FailoverCooldown:      envDuration("LLMPROXY_FAILOVER_COOLDOWN", 30*time.Second),
 		MaxBodyBytes:          envInt64("LLMPROXY_MAX_BODY_BYTES", 10<<20),
 		MaxEmbeddingBatch:     envInt("LLMPROXY_MAX_EMBEDDING_BATCH", 2048),
 		PricingFile:           envStr("LLMPROXY_PRICING_FILE", ""),

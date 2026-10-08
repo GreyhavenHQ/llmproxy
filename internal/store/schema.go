@@ -82,6 +82,8 @@ CREATE TABLE IF NOT EXISTS provider_endpoint (
 -- which is enforced at write time. An alias row inherits its target's
 -- provider, upstream name and capabilities, so its own upstream_name and
 -- capability_set are empty and provider_id only satisfies the reference.
+-- An alias with several targets leaves target_id empty, lists them in
+-- model_binding_target, and sets strategy. One target means no strategy.
 CREATE TABLE IF NOT EXISTS model_binding (
     id TEXT PRIMARY KEY,
     alias TEXT NOT NULL UNIQUE,
@@ -92,15 +94,25 @@ CREATE TABLE IF NOT EXISTS model_binding (
     discovered_at TEXT,
     created_at TEXT NOT NULL,
     target_id TEXT REFERENCES model_binding(id),
-    hidden INTEGER NOT NULL DEFAULT 0
+    hidden INTEGER NOT NULL DEFAULT 0,
+    strategy TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS model_binding_target (
+    binding_id TEXT NOT NULL REFERENCES model_binding(id),
+    target_id TEXT NOT NULL REFERENCES model_binding(id),
+    position INTEGER NOT NULL,
+    weight INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (binding_id, target_id)
+);
+CREATE INDEX IF NOT EXISTS idx_model_binding_target_target ON model_binding_target(target_id);
 -- client is the caller's User-Agent header, truncated. tags is the caller's
 -- x-llmproxy-tags header, normalised to a canonical comma-separated
 -- "key:value" list. Both are header metadata only, never request or response
 -- content. error_kind is a classification token: the proxy's transport error
 -- class on unreachable, the upstream's error type/code (sanitised to a short
 -- identifier charset) on upstream_error. Never an error message: provider
--- messages can echo request content.
+-- messages can echo request content. failed_over marks an attempt that failed
+-- before another alias target was tried. Request counts exclude it.
 CREATE TABLE IF NOT EXISTS usage_event (
     id TEXT PRIMARY KEY,
     ts TEXT NOT NULL,
@@ -120,7 +132,8 @@ CREATE TABLE IF NOT EXISTS usage_event (
     cost DOUBLE PRECISION,
     unpriced INTEGER NOT NULL DEFAULT 0,
     duration_ms INTEGER NOT NULL DEFAULT 0,
-    ttft_ms INTEGER
+    ttft_ms INTEGER,
+    failed_over INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_usage_event_ts ON usage_event(ts);
 CREATE INDEX IF NOT EXISTS idx_usage_event_principal ON usage_event(principal_id);

@@ -1,13 +1,7 @@
-// Package catalog: alias resolution.
-//
-// The one rule: a caller-facing model name is a globally unique alias mapping
-// to exactly one (provider, upstream model) pair, so resolution can never be
-// ambiguous; ambiguity is rejected at write time by the alias unique
-// constraint. A name may reach that pair through one hop, by pointing at
-// another binding, which the store resolves in the same query — so this stays
-// a single lookup and a chain can never loop. Resolution takes the endpoint
-// into account: the binding's provider must be enabled and the endpoint in
-// the capability set.
+// Package catalog resolves a caller-facing alias to an ordered plan of routes.
+// Aliases are globally unique, so resolution is never ambiguous. An alias
+// reaches its targets through at most one hop, and every route's provider is
+// enabled.
 package catalog
 
 import (
@@ -65,6 +59,7 @@ type Route struct {
 	TimeoutConnect time.Duration
 	TimeoutRead    time.Duration
 	MaxConcurrency int
+	Weight         int
 	Alias          string
 	// TargetAlias is the alias this one points at, empty when the model
 	// routes to a provider directly. Pricing falls through it.
@@ -103,7 +98,7 @@ func boolStr(b bool) string {
 
 type cacheEntry struct {
 	expires time.Time
-	route   *Route // nil means "known absent"
+	plan    *Plan // nil means "known absent"
 }
 
 type Catalog struct {
@@ -125,12 +120,12 @@ func (c *Catalog) Invalidate() {
 	c.mu.Unlock()
 }
 
-func (c *Catalog) Resolve(ctx context.Context, alias, endpoint string, streaming bool) (*Route, *apierr.ProxyError) {
-	route, err := c.lookup(ctx, alias)
+func (c *Catalog) Resolve(ctx context.Context, alias, endpoint string, streaming bool) (*Plan, *apierr.ProxyError) {
+	plan, err := c.lookup(ctx, alias)
 	if err != nil {
 		return nil, apierr.New(500, "internal_error", "catalog lookup failed")
 	}
-	if route == nil {
+	if plan == nil {
 		return nil, apierr.Newf(404, "model_not_found",
 			"model '%s' does not exist or its provider is disabled", alias).WithParam("model")
 	}
@@ -138,15 +133,16 @@ func (c *Catalog) Resolve(ctx context.Context, alias, endpoint string, streaming
 	if streaming && endpoint == "chat" {
 		needed = append(needed, "chat_stream")
 	}
+	caps := plan.Capabilities()
 	var missing []string
 	for _, cap := range needed {
-		if !route.Capabilities[cap] {
+		if !caps[cap] {
 			missing = append(missing, cap)
 		}
 	}
 	if len(missing) > 0 {
-		supported := make([]string, 0, len(route.Capabilities))
-		for cap := range route.Capabilities {
+		supported := make([]string, 0, len(caps))
+		for cap := range caps {
 			supported = append(supported, cap)
 		}
 		sort.Strings(supported)
@@ -154,35 +150,52 @@ func (c *Catalog) Resolve(ctx context.Context, alias, endpoint string, streaming
 			"model '%s' does not support %v; supported capabilities: %v",
 			alias, missing, supported).WithParam("model")
 	}
-	return route, nil
+	return plan, nil
 }
 
-func (c *Catalog) lookup(ctx context.Context, alias string) (*Route, error) {
+func (c *Catalog) lookup(ctx context.Context, alias string) (*Plan, error) {
 	now := time.Now()
 	c.mu.Lock()
 	if entry, ok := c.cache[alias]; ok && entry.expires.After(now) {
 		c.mu.Unlock()
-		return entry.route, nil
+		return entry.plan, nil
 	}
 	c.mu.Unlock()
 
-	route, err := c.load(ctx, alias)
+	plan, err := c.load(ctx, alias)
 	if err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
-	c.cache[alias] = cacheEntry{expires: now.Add(c.ttl), route: route}
+	c.cache[alias] = cacheEntry{expires: now.Add(c.ttl), plan: plan}
 	c.mu.Unlock()
-	return route, nil
+	return plan, nil
 }
 
-func (c *Catalog) load(ctx context.Context, alias string) (*Route, error) {
-	binding, provider, overrides, err := c.store.ResolveAlias(ctx, alias)
-	if err != nil || binding == nil || provider == nil {
+func (c *Catalog) load(ctx context.Context, alias string) (*Plan, error) {
+	binding, targets, err := c.store.ResolveAlias(ctx, alias)
+	if err != nil || binding == nil || len(targets) == 0 {
 		return nil, err
 	}
+	plan := &Plan{Alias: binding.Alias, Strategy: binding.Strategy}
+	for _, t := range targets {
+		route, err := c.route(binding.Alias, t)
+		if err != nil {
+			return nil, err
+		}
+		plan.Routes = append(plan.Routes, route)
+	}
+	if len(plan.Routes) < 2 {
+		plan.Strategy = ""
+	}
+	return plan, nil
+}
+
+func (c *Catalog) route(alias string, t store.ResolvedTarget) (*Route, error) {
+	binding, provider := t.Binding, t.Provider
 	credential := ""
 	if provider.CredentialCiphertext.Valid && provider.CredentialCiphertext.String != "" {
+		var err error
 		credential, err = secrets.DecryptCredential(c.secret, provider.CredentialCiphertext.String)
 		if err != nil {
 			return nil, err
@@ -193,6 +206,10 @@ func (c *Catalog) load(ctx context.Context, alias string) (*Route, error) {
 		if cap != "" {
 			caps[cap] = true
 		}
+	}
+	targetAlias := binding.TargetAlias
+	if binding.Alias != alias {
+		targetAlias = binding.Alias
 	}
 	return &Route{
 		ProviderID:       provider.ID,
@@ -205,11 +222,12 @@ func (c *Catalog) load(ctx context.Context, alias string) (*Route, error) {
 		TimeoutConnect:   time.Duration(provider.TimeoutConnect * float64(time.Second)),
 		TimeoutRead:      time.Duration(provider.TimeoutRead * float64(time.Second)),
 		MaxConcurrency:   int(provider.MaxConcurrency.Int64),
-		Alias:            binding.Alias,
-		TargetAlias:      binding.TargetAlias,
+		Weight:           max(t.Weight, 1),
+		Alias:            alias,
+		TargetAlias:      targetAlias,
 		UpstreamName:     binding.UpstreamName,
 		Capabilities:     caps,
-		URLOverrides:     overrides,
+		URLOverrides:     t.Overrides,
 		RateLimitHeaders: ParseRateLimitHeaders(provider.RateLimitHeaders),
 	}, nil
 }
