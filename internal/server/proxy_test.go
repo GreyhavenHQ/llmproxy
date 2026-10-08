@@ -174,3 +174,35 @@ func TestStreamChunksForwardedVerbatim(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamRecordsTimeToFirstToken(t *testing.T) {
+	e := newEnv(t)
+	resp, body := e.request(t, "POST", "/admin/v1/models", e.adminKey, map[string]any{
+		"alias": "ttft", "provider": "fake", "upstream_name": "m-ttft", "capabilities": []string{"chat", "chat_stream"},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create model: %d %s", resp.StatusCode, body)
+	}
+	resp, body = e.request(t, "POST", "/v1/chat/completions", e.memberKey,
+		map[string]any{"model": "ttft", "stream": true, "messages": []any{}})
+	if resp.StatusCode != 200 {
+		t.Fatalf("stream: %d %s", resp.StatusCode, body)
+	}
+	ev := e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Alias == "ttft" })
+	if !ev.TTFTMs.Valid || ev.TTFTMs.Int64 < ttftDelay.Milliseconds() || ev.TTFTMs.Int64 > ev.DurationMs {
+		t.Fatalf("ttft = %v, duration = %d, want >= %d and <= duration", ev.TTFTMs, ev.DurationMs, ttftDelay.Milliseconds())
+	}
+}
+
+func TestUnaryRecordsNoTimeToFirstToken(t *testing.T) {
+	e := newEnv(t)
+	resp, body := e.request(t, "POST", "/v1/chat/completions", e.memberKey,
+		map[string]any{"model": "alpha", "messages": []any{}})
+	if resp.StatusCode != 200 {
+		t.Fatalf("unary: %d %s", resp.StatusCode, body)
+	}
+	ev := e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Alias == "alpha" })
+	if ev.TTFTMs.Valid {
+		t.Fatalf("unary ttft = %v, want null", ev.TTFTMs)
+	}
+}

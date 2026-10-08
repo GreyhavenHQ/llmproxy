@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,6 +23,10 @@ import (
 )
 
 const upstreamKey = "upstream-secret-key"
+
+// ttftDelay is how long the m-ttft and claude-fake-ttft fakes wait between
+// the stream's opening events and its first content.
+const ttftDelay = 200 * time.Millisecond
 
 type recordedRequest struct {
 	Path   string
@@ -180,6 +185,15 @@ func newFakeAnthropic(t *testing.T) *fakeAnthropic {
 				}
 			}
 		}
+		if model == "claude-fake-ttft" {
+			start, rest, _ := strings.Cut(anthropicStreamBody, "event: content_block_delta\n")
+			fmt.Fprint(w, start+"event: ping\ndata: {\"type\": \"ping\"}\n\n")
+			flusher.Flush()
+			time.Sleep(ttftDelay)
+			fmt.Fprint(w, "event: content_block_delta\n"+rest)
+			flusher.Flush()
+			return
+		}
 		fmt.Fprint(w, anthropicStreamBody)
 		flusher.Flush()
 	})
@@ -279,6 +293,10 @@ func newFakeUpstream(t *testing.T) *fakeUpstream {
 			}
 		}
 		_, _ = w.Write(sseChunk(model, map[string]any{"role": "assistant", "content": ""}, nil, nil, false))
+		if model == "m-ttft" {
+			flusher.Flush()
+			time.Sleep(ttftDelay)
+		}
 		for i := 0; i < 3; i++ {
 			_, _ = w.Write(sseChunk(model, map[string]any{"content": fmt.Sprintf("word%d ", i)}, nil, nil, false))
 			flusher.Flush()

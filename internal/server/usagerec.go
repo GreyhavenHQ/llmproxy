@@ -121,6 +121,11 @@ type usageOutcome struct {
 	Streamed   bool
 	Usage      map[string]any
 	DurationMs int64
+	// TTFTMs is the time to the first content event; null when none arrived.
+	TTFTMs sql.NullInt64
+	// TS is when the response ended, taken before the async hop so that
+	// TS minus DurationMs is the request's start.
+	TS string
 }
 
 // extractUsage pulls the usage object out of a unary JSON response.
@@ -141,12 +146,8 @@ var usageMarker = []byte(`"usage"`)
 // parseSSEUsage extracts a usage object from one SSE line, if present. The
 // cheap marker check avoids JSON-parsing content chunks.
 func parseSSEUsage(line []byte) map[string]any {
-	line = bytes.TrimSpace(line)
-	if !bytes.HasPrefix(line, dataPrefix) {
-		return nil
-	}
-	data := bytes.TrimSpace(line[len(dataPrefix):])
-	if bytes.Equal(data, doneMarker) || !bytes.Contains(data, usageMarker) {
+	data := sseData(line)
+	if data == nil || !bytes.Contains(data, usageMarker) {
 		return nil
 	}
 	var doc struct {
@@ -156,6 +157,83 @@ func parseSSEUsage(line []byte) map[string]any {
 		return nil
 	}
 	return doc.Usage
+}
+
+// sseData returns the payload of an SSE data line, or nil for any other line
+// and for the [DONE] marker.
+func sseData(line []byte) []byte {
+	line = bytes.TrimSpace(line)
+	if !bytes.HasPrefix(line, dataPrefix) {
+		return nil
+	}
+	data := bytes.TrimSpace(line[len(dataPrefix):])
+	if bytes.Equal(data, doneMarker) {
+		return nil
+	}
+	return data
+}
+
+// present reports whether a JSON value carries something: not absent, null,
+// an empty string or an empty array.
+func present(raw json.RawMessage) bool {
+	switch string(raw) {
+	case "", "null", `""`, "[]":
+		return false
+	}
+	return true
+}
+
+// openAIFirstContent reports whether an OpenAI-shaped SSE line carries
+// generated output: text, reasoning or tool calls. Only the verdict leaves.
+func openAIFirstContent(line []byte) bool {
+	data := sseData(line)
+	if data == nil {
+		return false
+	}
+	var doc struct {
+		Choices []struct {
+			Text  json.RawMessage `json:"text"`
+			Delta struct {
+				Content          json.RawMessage `json:"content"`
+				ReasoningContent json.RawMessage `json:"reasoning_content"`
+				Reasoning        json.RawMessage `json:"reasoning"`
+				ToolCalls        json.RawMessage `json:"tool_calls"`
+			} `json:"delta"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return false
+	}
+	for _, c := range doc.Choices {
+		d := c.Delta
+		if present(c.Text) || present(d.Content) || present(d.ReasoningContent) ||
+			present(d.Reasoning) || present(d.ToolCalls) {
+			return true
+		}
+	}
+	return false
+}
+
+// anthropicFirstContent reports whether an Anthropic SSE line is a
+// content_block_delta, the first event that carries generated output.
+func anthropicFirstContent(line []byte) bool {
+	data := sseData(line)
+	if data == nil {
+		return false
+	}
+	var doc struct {
+		Type string `json:"type"`
+	}
+	return json.Unmarshal(data, &doc) == nil && doc.Type == "content_block_delta"
+}
+
+// firstContentMs returns the elapsed time since started when line is the
+// first content event, and leaves an already set value alone.
+func firstContentMs(ttft sql.NullInt64, line []byte, started time.Time, isContent func([]byte) bool) sql.NullInt64 {
+	if ttft.Valid || !isContent(line) {
+		return ttft
+	}
+	return sql.NullInt64{Int64: time.Since(started).Milliseconds(), Valid: true}
 }
 
 // mergeUsage merges max-wins: some upstreams emit usage before the terminal chunk.
@@ -282,6 +360,8 @@ func (s *Server) recordUsage(ctx context.Context, auth *Auth, route *catalog.Rou
 		Cancelled:    rec.Cancelled,
 		Streamed:     rec.Streamed,
 		DurationMs:   rec.DurationMs,
+		TTFTMs:       rec.TTFTMs,
+		TS:           rec.TS,
 	}
 	if rec.StatusCode != 0 {
 		ev.StatusCode = sql.NullInt64{Int64: int64(rec.StatusCode), Valid: true}
@@ -303,5 +383,6 @@ func (s *Server) recordAsync(record func(context.Context)) {
 }
 
 func (s *Server) recordUsageAsync(auth *Auth, route *catalog.Route, endpoint string, rec usageOutcome) {
+	rec.TS = store.Now()
 	s.recordAsync(func(ctx context.Context) { s.recordUsage(ctx, auth, route, endpoint, rec) })
 }

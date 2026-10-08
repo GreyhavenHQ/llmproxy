@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -272,6 +273,7 @@ func (s *Server) relayStream(w http.ResponseWriter, r *http.Request, auth *Auth,
 	flusher, _ := w.(http.Flusher)
 
 	var usage map[string]any
+	var ttft sql.NullInt64
 	outcome, kind := "ok", ""
 	cancelled := false
 	var pending []byte
@@ -293,6 +295,7 @@ func (s *Server) relayStream(w http.ResponseWriter, r *http.Request, auth *Auth,
 				if idx < 0 {
 					break
 				}
+				ttft = firstContentMs(ttft, pending[:idx], started, openAIFirstContent)
 				if u := parseSSEUsage(pending[:idx]); u != nil {
 					usage = mergeUsage(usage, u)
 				}
@@ -317,12 +320,13 @@ func (s *Server) relayStream(w http.ResponseWriter, r *http.Request, auth *Auth,
 	}
 	// Some upstreams end the stream without a trailing newline; scan the
 	// leftover partial line for a usage chunk too.
+	ttft = firstContentMs(ttft, pending, started, openAIFirstContent)
 	if u := parseSSEUsage(pending); u != nil {
 		usage = mergeUsage(usage, u)
 	}
 	s.recordUsageAsync(auth, route, endpoint, usageOutcome{
 		StatusCode: resp.StatusCode, Outcome: outcome, ErrorKind: kind, Cancelled: cancelled,
-		Streamed: true, Usage: usage, DurationMs: time.Since(started).Milliseconds(),
+		Streamed: true, Usage: usage, DurationMs: time.Since(started).Milliseconds(), TTFTMs: ttft,
 	})
 }
 
