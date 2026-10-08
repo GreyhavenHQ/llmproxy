@@ -13,6 +13,7 @@ import {
 } from '@/lib/api'
 import { addBuckets, bucketLabel, bucketTitle, floorBucket, RANGES } from '@/lib/timerange'
 import { useAsync } from '@/lib/useAsync'
+import { useQueryParam } from '@/lib/useQueryParam'
 import {
   LineChart,
   SERIES_ACCENT,
@@ -89,11 +90,11 @@ function FigureTile({
 }
 
 export function PerformanceDashboard() {
-  const [rangeKey, setRangeKey] = useState('7d')
-  const [principal, setPrincipal] = useState('')
-  const [provider, setProvider] = useState('')
-  const [model, setModel] = useState('')
-  const [app, setApp] = useState('')
+  const [rangeKey, setRangeKey] = useQueryParam('range', '7d')
+  const [principal, setPrincipal] = useQueryParam('user')
+  const [provider, setProvider] = useQueryParam('provider')
+  const [model, setModel] = useQueryParam('model')
+  const [app, setApp] = useQueryParam('app')
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1]
 
   const windowEnd = floorBucket(new Date(), range.bucket)

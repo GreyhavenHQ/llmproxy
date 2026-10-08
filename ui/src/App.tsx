@@ -130,7 +130,9 @@ function Shell({ me }: { me: Me }) {
       path += '/' + next.usageSub
     }
     if (window.location.pathname !== path) {
-      window.history.pushState(null, '', path)
+      // Usage panes share their filters through the query string.
+      const keep = nav.tab === 'usage' && next.tab === 'usage'
+      window.history.pushState(null, '', path + (keep ? window.location.search : ''))
     }
   }
   const navigate = (tab: string) => push({ ...nav, tab })
