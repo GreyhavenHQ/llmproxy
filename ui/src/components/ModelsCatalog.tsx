@@ -19,6 +19,7 @@ import {
 } from '@/lib/api'
 import { addBuckets, floorBucket, RANGES } from '@/lib/timerange'
 import { useAsync } from '@/lib/useAsync'
+import { useQueryParam } from '@/lib/useQueryParam'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -91,7 +92,7 @@ function SortHead({
 }
 
 export function ModelsCatalog() {
-  const [rangeKey, setRangeKey] = useState('30d')
+  const [rangeKey, setRangeKey] = useQueryParam('range', '30d')
   const [sort, setSort] = useState<SortKey>('name')
   const [showHidden, setShowHidden] = useState(false)
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[2]

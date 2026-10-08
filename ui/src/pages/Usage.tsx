@@ -4,6 +4,7 @@
 import { UsageDashboard } from '@/components/UsageDashboard'
 import { AppsUsage } from '@/components/AppsUsage'
 import { ErrorsDashboard } from '@/components/ErrorsDashboard'
+import { PerformanceDashboard } from '@/components/PerformanceDashboard'
 import { ModelsCatalog } from '@/components/ModelsCatalog'
 import { ProvidersUsage } from '@/components/ProvidersUsage'
 import { cn } from '@/lib/utils'
@@ -14,6 +15,7 @@ const SUBS = [
   { key: 'models', label: 'Models' },
   { key: 'providers', label: 'Providers' },
   { key: 'errors', label: 'Errors' },
+  { key: 'performance', label: 'Performance' },
 ]
 
 // A quieter control than the admin sub-nav: underlined links, one text row.
@@ -60,6 +62,8 @@ export function Usage({
         <ProvidersUsage />
       ) : sub === 'errors' ? (
         <ErrorsDashboard />
+      ) : sub === 'performance' ? (
+        <PerformanceDashboard />
       ) : (
         <UsageDashboard ssoEnabled={ssoEnabled} />
       )}

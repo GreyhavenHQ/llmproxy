@@ -81,6 +81,7 @@ var migrations = []migration{
 	}},
 	addColumn("009_model_binding_hidden", "model_binding", "hidden", "INTEGER NOT NULL DEFAULT 0"),
 	addColumn("010_provider_rate_limit_headers", "provider", "rate_limit_headers", "TEXT NOT NULL DEFAULT ''"),
+	addColumn("011_usage_event_ttft_ms", "usage_event", "ttft_ms", "INTEGER"),
 }
 
 // migrate applies every pending migration in order. Each runs in its own

@@ -75,7 +75,7 @@ func TestMigrateUpgradesLegacyDump(t *testing.T) {
 		t.Fatalf("begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	for _, col := range []string{"client", "tags"} {
+	for _, col := range []string{"client", "tags", "ttft_ms"} {
 		ok, err := st.columnExists(ctx, tx, "usage_event", col)
 		if err != nil {
 			t.Fatalf("columnExists %s: %v", col, err)

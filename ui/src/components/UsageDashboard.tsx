@@ -22,6 +22,7 @@ import {
   type UsageRow,
 } from '@/lib/api'
 import { useAsync } from '@/lib/useAsync'
+import { useQueryParam } from '@/lib/useQueryParam'
 import {
   ColumnChart,
   Donut,
@@ -220,11 +221,11 @@ function userDonut(
 
 
 export function UsageDashboard({ ssoEnabled }: { ssoEnabled: boolean }) {
-  const [rangeKey, setRangeKey] = useState('30d')
-  const [principal, setPrincipal] = useState('')
-  const [provider, setProvider] = useState('')
-  const [model, setModel] = useState('')
-  const [client, setClient] = useState('') // a client family; server filter is a prefix match
+  const [rangeKey, setRangeKey] = useQueryParam('range', '30d')
+  const [principal, setPrincipal] = useQueryParam('user')
+  const [provider, setProvider] = useQueryParam('provider')
+  const [model, setModel] = useQueryParam('model')
+  const [client, setClient] = useQueryParam('client') // a client family; server filter is a prefix match
   const [modelTable, setModelTable] = useState(false) // Models card: donut or full table
   const [clientTable, setClientTable] = useState(false) // Clients card: bars or full table
   const [clientByVersion, setClientByVersion] = useState(false) // group per version instead of per tool

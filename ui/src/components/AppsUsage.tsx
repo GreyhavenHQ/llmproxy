@@ -29,6 +29,7 @@ import {
   type Bucket,
 } from '@/lib/timerange'
 import { useAsync } from '@/lib/useAsync'
+import { useQueryParam } from '@/lib/useQueryParam'
 import {
   ColumnChart,
   Donut,
@@ -130,11 +131,11 @@ function contextOf(row: StatsRow): string {
 }
 
 export function AppsUsage() {
-  const [rangeKey, setRangeKey] = useState('30d')
-  const [app, setApp] = useState('')
-  const [context, setContext] = useState('')
-  const [user, setUser] = useState('')
-  const [model, setModel] = useState('')
+  const [rangeKey, setRangeKey] = useQueryParam('range', '30d')
+  const [app, setApp] = useQueryParam('app')
+  const [context, setContext] = useQueryParam('context')
+  const [user, setUser] = useQueryParam('user')
+  const [model, setModel] = useQueryParam('model')
   const [appTable, setAppTable] = useState(false) // Apps card: bars or full table
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[2]
 

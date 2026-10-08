@@ -359,3 +359,64 @@ func TestTransparentPricing(t *testing.T) {
 		t.Fatalf("cost %v, want %v", ev.Cost, want)
 	}
 }
+
+func TestTransparentStreamRecordsTimeToFirstToken(t *testing.T) {
+	e := newEnv(t)
+	body := []byte(`{"model":"claude-fake-ttft","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	resp, data := e.relayRequest(t, "POST", "/v1/messages", anthropicKey, body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, data)
+	}
+	ev := e.waitUsage(t, func(ev store.UsageEvent) bool {
+		return ev.ProviderID == "transparent:anthropic" && ev.Streamed
+	})
+	if !ev.TTFTMs.Valid || ev.TTFTMs.Int64 < ttftDelay.Milliseconds() {
+		t.Fatalf("ttft = %v, want >= %d", ev.TTFTMs, ttftDelay.Milliseconds())
+	}
+}
+
+func TestTransparentUnaryRecordsNoTimeToFirstToken(t *testing.T) {
+	e := newEnv(t)
+	body := []byte(`{"model":"claude-fake-1","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`)
+	if resp, data := e.relayRequest(t, "POST", "/v1/messages", anthropicKey, body); resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, data)
+	}
+	ev := e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.ProviderID == "transparent:anthropic" })
+	if ev.TTFTMs.Valid {
+		t.Fatalf("unary ttft = %v, want null", ev.TTFTMs)
+	}
+}
+
+func TestTransparentStreamCancelledBeforeContentRecordsNoTimeToFirstToken(t *testing.T) {
+	e := newEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	body := `{"model":"claude-fake-ttft","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"hi"}]}`
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		e.proxy.URL+"/transparent/anthropic/"+e.relayToken+"/v1/messages", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("x-api-key", anthropicKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(line, `"ping"`) {
+			break
+		}
+	}
+	cancel()
+	ev := e.waitUsage(t, func(ev store.UsageEvent) bool {
+		return ev.ProviderID == "transparent:anthropic" && ev.Cancelled
+	})
+	if ev.TTFTMs.Valid {
+		t.Fatalf("ttft = %v, want null", ev.TTFTMs)
+	}
+}

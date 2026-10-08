@@ -232,6 +232,7 @@ func (s *Server) relayTransparentStream(w http.ResponseWriter, r *http.Request,
 	flusher, _ := w.(http.Flusher)
 	var model string
 	var usage map[string]any
+	var ttft sql.NullInt64
 	outcome, cancelled, kind := "ok", false, ""
 	if resp.StatusCode >= 400 {
 		outcome = "upstream_error"
@@ -254,6 +255,7 @@ func (s *Server) relayTransparentStream(w http.ResponseWriter, r *http.Request,
 				if idx < 0 {
 					break
 				}
+				ttft = firstContentMs(ttft, pending[:idx], started, anthropicFirstContent)
 				if m, u := parseAnthropicSSELine(pending[:idx]); u != nil {
 					usage = mergeUsage(usage, u)
 					if m != "" {
@@ -279,6 +281,7 @@ func (s *Server) relayTransparentStream(w http.ResponseWriter, r *http.Request,
 			break
 		}
 	}
+	ttft = firstContentMs(ttft, pending, started, anthropicFirstContent)
 	if m, u := parseAnthropicSSELine(pending); u != nil {
 		usage = mergeUsage(usage, u)
 		if m != "" {
@@ -287,7 +290,7 @@ func (s *Server) relayTransparentStream(w http.ResponseWriter, r *http.Request,
 	}
 	s.recordTransparentAsync(relay, r.Method, model, endpoint, clientFrom(r), tagsFrom(r), usageOutcome{
 		StatusCode: resp.StatusCode, Outcome: outcome, ErrorKind: kind, Cancelled: cancelled,
-		Streamed: true, Usage: usage, DurationMs: time.Since(started).Milliseconds(),
+		Streamed: true, Usage: usage, DurationMs: time.Since(started).Milliseconds(), TTFTMs: ttft,
 	})
 }
 
@@ -325,6 +328,7 @@ func (s *Server) recordTransparentAsync(relay *store.RelayAuthResult, method, mo
 	if method == http.MethodHead || method == http.MethodOptions {
 		return
 	}
+	rec.TS = store.Now()
 	s.recordAsync(func(ctx context.Context) {
 		ev := &store.UsageEvent{
 			PrincipalID:  relay.PrincipalID,
@@ -340,6 +344,8 @@ func (s *Server) recordTransparentAsync(relay *store.RelayAuthResult, method, mo
 			Cancelled:    rec.Cancelled,
 			Streamed:     rec.Streamed,
 			DurationMs:   rec.DurationMs,
+			TTFTMs:       rec.TTFTMs,
+			TS:           rec.TS,
 		}
 		if rec.StatusCode != 0 {
 			ev.StatusCode = sql.NullInt64{Int64: int64(rec.StatusCode), Valid: true}

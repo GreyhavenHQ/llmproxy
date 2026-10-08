@@ -129,10 +129,16 @@ under-count real spend.
 ### Streaming is bytes-through, with a bounded usage sniffer
 
 Streamed responses are relayed as raw bytes, never re-framed or re-serialized.
-A line scanner with a bounded buffer parses only lines that contain
-`"usage"`; everything else passes untouched. Billing does not require
-understanding the stream, only spotting the usage object, and re-framing is
-where proxies corrupt SSE.
+A line scanner with a bounded buffer parses lines that contain `"usage"`;
+everything else passes untouched. Billing does not require understanding the
+stream, only spotting the usage object, and re-framing is where proxies corrupt
+SSE.
+
+One exception: until the first event with generated content, the scanner also
+parses each `data:` line to record the time to first token. It keeps only a
+timestamp, never part of the line, and stops checking after the first match.
+The first byte is not used because Anthropic sends `message_start` and `ping`
+before any token.
 
 ### Proxy metadata lives in headers, never in bodies
 

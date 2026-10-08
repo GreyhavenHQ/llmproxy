@@ -11,6 +11,7 @@ export interface ChartSeries {
   name: string
   fill: string // SVG fill class for the mark
   swatch: string // matching background class for the legend key
+  stroke?: string // SVG stroke class, for line charts
 }
 
 export interface ChartPoint {
@@ -29,11 +30,13 @@ export const SERIES_ACCENT: ChartSeries = {
   name: '',
   fill: 'fill-chart-1',
   swatch: 'bg-chart-1',
+  stroke: 'stroke-chart-1',
 }
 export const SERIES_GRAY: ChartSeries = {
   name: '',
   fill: 'fill-chart-2 dark:fill-chart-4',
   swatch: 'bg-chart-2 dark:bg-chart-4',
+  stroke: 'stroke-chart-2 dark:stroke-chart-4',
 }
 export const SERIES_GRAY_MID: ChartSeries = {
   name: '',
@@ -279,6 +282,230 @@ export function ColumnChart({
                 <span className={cn('h-0.5 w-3 rounded-full', series[s].swatch)} aria-hidden />
                 <span className="font-medium tabular-nums">
                   {value === null ? 'unpriced' : format(value)}
+                </span>
+                {series[s].name && (
+                  <span className="text-muted-foreground">{series[s].name}</span>
+                )}
+              </p>
+            ))}
+            {points[hovered].rows?.map((row) => (
+              <p key={row.label} className="flex items-center gap-1.5 pl-[18px]">
+                <span className="font-medium tabular-nums">{row.value}</span>
+                <span className="text-muted-foreground">{row.label}</span>
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// LineChart draws each series as its own line on one shared scale, for
+// figures that must not stack (a p50 and a p95). A null value breaks the line.
+export function LineChart({
+  points,
+  series,
+  format,
+  integer,
+  emptyMessage = 'No data in this range.',
+  className,
+}: {
+  points: ChartPoint[]
+  series: ChartSeries[]
+  format: (n: number) => string
+  integer?: boolean
+  emptyMessage?: string
+  className?: string
+}) {
+  const [ref, width] = useWidth<HTMLDivElement>()
+  const [hovered, setHovered] = useState<number | null>(null)
+
+  const all = points.flatMap((p) => p.values.filter((v): v is number => v !== null))
+  const peak = Math.max(0, ...all)
+  const ticks = niceTicks(peak, integer === true)
+  const top = ticks[ticks.length - 1] || 1
+  const plotW = Math.max(0, width - GUTTER)
+  const band = points.length > 0 ? plotW / points.length : 0
+  const x = (i: number) => GUTTER + i * band + band / 2
+  const y = (value: number) => PLOT - (value / top) * PLOT
+  const labelEvery = Math.max(1, Math.ceil(points.length / 8))
+  const valueAt = (i: number, s: number) => points[i]?.values[s] ?? null
+
+  // Runs of consecutive non-null values, one path per run.
+  const runs = (s: number) => {
+    const out: number[][] = []
+    let run: number[] = []
+    points.forEach((_, i) => {
+      if (valueAt(i, s) === null) {
+        if (run.length) out.push(run)
+        run = []
+      } else run.push(i)
+    })
+    if (run.length) out.push(run)
+    return out
+  }
+
+  return (
+    <div className={cn('flex flex-col gap-2', className)}>
+      {series.length > 1 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {series.map((s) => (
+            <span key={s.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className={cn('h-0.5 w-3 rounded-full', s.swatch)} aria-hidden />
+              {s.name}
+            </span>
+          ))}
+        </div>
+      )}
+      <div ref={ref} className="relative w-full">
+        <svg
+          width={width}
+          height={PLOT + AXIS}
+          className="block overflow-visible"
+          onPointerLeave={() => setHovered(null)}
+        >
+          {ticks.map((tick) => (
+            <g key={tick}>
+              <line
+                x1={GUTTER}
+                x2={width}
+                y1={y(tick)}
+                y2={y(tick)}
+                className="stroke-border"
+                strokeWidth={1}
+              />
+              <text
+                x={GUTTER - 8}
+                y={y(tick) + 3}
+                textAnchor="end"
+                className="fill-muted-foreground text-[10px] tabular-nums"
+              >
+                {format(tick)}
+              </text>
+            </g>
+          ))}
+
+          {hovered !== null && (
+            <line
+              x1={x(hovered)}
+              x2={x(hovered)}
+              y1={0}
+              y2={PLOT}
+              className="stroke-muted-foreground/50"
+              strokeWidth={1}
+            />
+          )}
+
+          {series.map((s, si) =>
+            runs(si).map((run) =>
+              run.length === 1 ? (
+                <circle
+                  key={`${si}-${run[0]}`}
+                  cx={x(run[0])}
+                  cy={y(valueAt(run[0], si)!)}
+                  r={4}
+                  className={cn(s.fill, 'stroke-card')}
+                  strokeWidth={2}
+                />
+              ) : (
+                <path
+                  key={`${si}-${run[0]}`}
+                  d={run
+                    .map((i, k) => `${k === 0 ? 'M' : 'L'}${x(i)},${y(valueAt(i, si)!)}`)
+                    .join(' ')}
+                  fill="none"
+                  className={s.stroke}
+                  strokeWidth={2}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+              ),
+            ),
+          )}
+
+          {hovered !== null &&
+            series.map((s, si) => {
+              const v = valueAt(hovered, si)
+              return v === null ? null : (
+                <circle
+                  key={si}
+                  cx={x(hovered)}
+                  cy={y(v)}
+                  r={4}
+                  className={cn(s.fill, 'stroke-card')}
+                  strokeWidth={2}
+                />
+              )
+            })}
+
+          {points.map((point, i) =>
+            i % labelEvery === 0 ? (
+              <text
+                key={i}
+                x={x(i)}
+                y={PLOT + 15}
+                textAnchor="middle"
+                className="fill-muted-foreground text-[10px]"
+              >
+                {point.label}
+              </text>
+            ) : null,
+          )}
+
+          <line
+            x1={GUTTER}
+            x2={width}
+            y1={PLOT}
+            y2={PLOT}
+            className="stroke-border"
+            strokeWidth={1}
+          />
+
+          {points.map((point, i) => (
+            <rect
+              key={i}
+              x={GUTTER + i * band}
+              y={0}
+              width={Math.max(band, 1)}
+              height={PLOT}
+              fill="transparent"
+              tabIndex={0}
+              role="button"
+              aria-label={`${point.title}: ${point.values
+                .map((v, s) => `${series[s].name || 'value'} ${v === null ? 'none' : format(v)}`)
+                .join(', ')}`}
+              onPointerEnter={() => setHovered(i)}
+              onFocus={() => setHovered(i)}
+              onBlur={() => setHovered(null)}
+              className="outline-none focus-visible:stroke-ring focus-visible:[stroke-width:2]"
+            />
+          ))}
+        </svg>
+
+        {all.length === 0 && (
+          <p className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-sm text-muted-foreground">
+            {emptyMessage}
+          </p>
+        )}
+
+        {hovered !== null && points[hovered] && (
+          <div
+            className="pointer-events-none absolute z-10 min-w-36 -translate-x-1/2 rounded-md border bg-popover p-2 text-xs shadow-md"
+            style={{
+              left: Math.min(
+                Math.max(x(hovered), GUTTER + 70),
+                Math.max(width - 70, GUTTER + 70),
+              ),
+              top: 0,
+            }}
+          >
+            <p className="mb-1 text-muted-foreground">{points[hovered].title}</p>
+            {points[hovered].values.map((value, s) => (
+              <p key={s} className="flex items-center gap-1.5">
+                <span className={cn('h-0.5 w-3 rounded-full', series[s].swatch)} aria-hidden />
+                <span className="font-medium tabular-nums">
+                  {value === null ? '—' : format(value)}
                 </span>
                 {series[s].name && (
                   <span className="text-muted-foreground">{series[s].name}</span>

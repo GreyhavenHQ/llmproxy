@@ -174,3 +174,58 @@ func TestStreamChunksForwardedVerbatim(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamRecordsTimeToFirstToken(t *testing.T) {
+	e := newEnv(t)
+	resp, body := e.request(t, "POST", "/admin/v1/models", e.adminKey, map[string]any{
+		"alias": "ttft", "provider": "fake", "upstream_name": "m-ttft", "capabilities": []string{"chat", "chat_stream"},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create model: %d %s", resp.StatusCode, body)
+	}
+	resp, body = e.request(t, "POST", "/v1/chat/completions", e.memberKey,
+		map[string]any{"model": "ttft", "stream": true, "messages": []any{}})
+	if resp.StatusCode != 200 {
+		t.Fatalf("stream: %d %s", resp.StatusCode, body)
+	}
+	ev := e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Alias == "ttft" })
+	if !ev.TTFTMs.Valid || ev.TTFTMs.Int64 < ttftDelay.Milliseconds() || ev.TTFTMs.Int64 > ev.DurationMs {
+		t.Fatalf("ttft = %v, duration = %d, want >= %d and <= duration", ev.TTFTMs, ev.DurationMs, ttftDelay.Milliseconds())
+	}
+	if got := requestLogTTFT(t, e, "ttft"); got != float64(ev.TTFTMs.Int64) {
+		t.Fatalf("request log ttft_ms = %v, want %d", got, ev.TTFTMs.Int64)
+	}
+}
+
+func requestLogTTFT(t *testing.T, e *env, model string) any {
+	t.Helper()
+	resp, data := e.request(t, "GET", "/stats/requests?model="+model, e.memberKey, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("/stats/requests = %d %s", resp.StatusCode, data)
+	}
+	rows, _ := decode(t, data)["requests"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("request log has %d %s rows, want 1", len(rows), model)
+	}
+	value, ok := rows[0].(map[string]any)["ttft_ms"]
+	if !ok {
+		t.Fatal("request log row missing ttft_ms")
+	}
+	return value
+}
+
+func TestUnaryRecordsNoTimeToFirstToken(t *testing.T) {
+	e := newEnv(t)
+	resp, body := e.request(t, "POST", "/v1/chat/completions", e.memberKey,
+		map[string]any{"model": "alpha", "messages": []any{}})
+	if resp.StatusCode != 200 {
+		t.Fatalf("unary: %d %s", resp.StatusCode, body)
+	}
+	ev := e.waitUsage(t, func(ev store.UsageEvent) bool { return ev.Alias == "alpha" })
+	if ev.TTFTMs.Valid {
+		t.Fatalf("unary ttft = %v, want null", ev.TTFTMs)
+	}
+	if got := requestLogTTFT(t, e, "alpha"); got != nil {
+		t.Fatalf("request log ttft_ms = %v, want null", got)
+	}
+}
