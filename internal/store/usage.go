@@ -314,6 +314,9 @@ const providerNameSQL = `CASE WHEN p.name IS NOT NULL THEN p.name ` +
 // request log still show them.
 const completedSQL = ` AND (e.cancelled = 1 OR e.outcome = 'ok')`
 
+// servedSQL drops attempts that failed over to another target: the request is counted once.
+const servedSQL = ` AND e.failed_over = 0`
+
 // addQuantity accumulates one aggregated quantity into a units map,
 // normalising input_tokens to the non-cached input; see the comment on
 // anthropicProviderID.
@@ -409,6 +412,7 @@ func usageWhere(f UsageFilter) (string, []any) {
 // Empty principalID/since/until disable the corresponding filter.
 func (s *Store) UsageSummary(ctx context.Context, principalID, since, until string) ([]UsageSummaryRow, error) {
 	where, args := usageWhere(UsageFilter{PrincipalID: principalID, Since: since, Until: until})
+	where += servedSQL
 
 	rowsByKey := make(map[[3]string]*UsageSummaryRow)
 	events, err := s.db.QueryContext(ctx, s.q(`
@@ -544,6 +548,7 @@ func (s *Store) UsageSeries(ctx context.Context, f UsageFilter, hourly bool) ([]
 		bucket = "SUBSTR(e.ts, 1, 13)"
 	}
 	where, args := usageWhere(f)
+	where += servedSQL
 
 	// A cancelled request is its own outcome, so the three counts partition
 	// the total exactly.

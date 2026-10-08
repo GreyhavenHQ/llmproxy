@@ -231,3 +231,30 @@ func TestUsageEventFailedOverRoundTrip(t *testing.T) {
 		t.Fatalf("events = %+v %v", evs, err)
 	}
 }
+
+func TestRequestCountsExcludeFailedOver(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+	for _, ev := range []*store.UsageEvent{
+		{PrincipalID: "p", APIKeyID: "k", ProviderID: "x", Alias: "ha", UpstreamName: "u",
+			Endpoint: "chat", Outcome: "upstream_error", StatusCode: sql.NullInt64{Int64: 429, Valid: true}, FailedOver: true},
+		{PrincipalID: "p", APIKeyID: "k", ProviderID: "y", Alias: "ha", UpstreamName: "u",
+			Endpoint: "chat", Outcome: "ok", StatusCode: sql.NullInt64{Int64: 200, Valid: true}},
+	} {
+		if err := st.InsertUsageEvent(ctx, ev, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary, err := st.UsageSummary(ctx, "", "", "")
+	if err != nil || len(summary) != 1 || summary[0].Requests != 1 {
+		t.Fatalf("summary = %+v %v", summary, err)
+	}
+	series, err := st.UsageSeries(ctx, store.UsageFilter{}, false)
+	if err != nil || len(series) != 1 || series[0].Requests != 1 || series[0].Failed != 0 {
+		t.Fatalf("series = %+v %v", series, err)
+	}
+	errs, err := st.ErrorSeries(ctx, store.UsageFilter{}, false)
+	if err != nil || len(errs) != 1 || errs[0].Requests != 2 {
+		t.Fatalf("error series = %+v %v", errs, err)
+	}
+}
