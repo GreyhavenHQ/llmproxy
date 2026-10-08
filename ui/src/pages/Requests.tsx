@@ -252,6 +252,11 @@ function RowDetails({ row }: { row: RequestRow }) {
           <span className="tabular-nums">{formatTokens(quantity) || '0'}</span>
         </Detail>
       ))}
+      {row.ttft_ms !== null && (
+        <Detail label="First token">
+          <span className="tabular-nums">{formatNumber(row.ttft_ms)} ms</span>
+        </Detail>
+      )}
       <Detail label="Duration">
         <span className="tabular-nums">{formatNumber(row.duration_ms)} ms</span>
       </Detail>
@@ -501,13 +506,14 @@ export function Requests() {
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Tokens</TableHead>
                   <TableHead className="text-right">Cost</TableHead>
+                  <TableHead className="text-right">First token</TableHead>
                   <TableHead className="text-right">Duration</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {shown === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-muted-foreground">
+                    <TableCell colSpan={10} className="text-muted-foreground">
                       {filtered || since
                         ? 'No requests match these filters.'
                         : 'No requests recorded yet.'}
@@ -588,13 +594,20 @@ export function Requests() {
                         )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
+                        {r.ttft_ms === null ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          formatDuration(r.ttft_ms)
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
                         {formatDuration(r.duration_ms)}
                       </TableCell>
                     </TableRow>
                     {open === r.id && (
                       <TableRow className="bg-muted/30 hover:bg-muted/30">
                         <TableCell />
-                        <TableCell colSpan={8}>
+                        <TableCell colSpan={9}>
                           <RowDetails row={r} />
                         </TableCell>
                       </TableRow>

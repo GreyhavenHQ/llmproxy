@@ -242,6 +242,8 @@ export interface RequestRow {
   cost: number | null
   unpriced: boolean
   duration_ms: number
+  // ttft_ms is the time to the first streamed byte; null on unary requests.
+  ttft_ms: number | null
   units: Record<string, number>
 }
 
@@ -303,6 +305,46 @@ export interface ErrorsResponse {
   bucket: string
   series: ErrorBucket[]
   breakdown: ErrorCell[]
+}
+
+// A latency figure of /stats/performance. Every field is null when no
+// request in the slice qualified.
+export interface PerfFigure {
+  mean: number | null
+  p50: number | null
+  p95: number | null
+}
+
+export interface PerfConcurrency {
+  average: number
+  peak: number
+}
+
+// requests counts every request; measured counts the ok, uncancelled ones
+// behind the latency figures.
+export interface PerfStats {
+  requests: number
+  measured: number
+  duration_ms: PerfFigure
+  ttft_ms: PerfFigure
+  tokens_per_second: PerfFigure
+}
+
+export interface PerfBucket extends PerfStats {
+  start: string
+  concurrency: PerfConcurrency
+}
+
+export interface PerfModel extends PerfStats {
+  provider: string
+  model: string
+}
+
+export interface PerformanceResponse {
+  bucket: string
+  summary: PerfStats & { concurrency: PerfConcurrency }
+  series: PerfBucket[]
+  models: PerfModel[]
 }
 
 // formatDuration humanizes a request duration: milliseconds under a second,
