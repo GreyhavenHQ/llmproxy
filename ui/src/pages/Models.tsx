@@ -8,7 +8,7 @@ import {
   type Provider,
 } from '@/lib/api'
 import { useAsync } from '@/lib/useAsync'
-import { STRATEGIES, strategyLabel } from '@/lib/strategies'
+import { STRATEGIES, strategyLabel, weightShare } from '@/lib/strategies'
 import { Combobox, type ComboboxOption } from '@/components/Combobox'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -214,6 +214,12 @@ function filledTargets(targets: AliasTarget[]): AliasTarget[] {
     .filter((t) => t.alias !== '')
 }
 
+// Weighted targets list the most used first. Other strategies keep their order.
+function listedTargets(m: { strategy: string | null; targets: AliasTarget[] }): AliasTarget[] {
+  if (m.strategy !== 'weighted') return m.targets
+  return [...m.targets].sort((a, b) => b.weight - a.weight)
+}
+
 // An ordered list of targets. The strategy appears once there are two.
 function TargetsField({
   id,
@@ -245,7 +251,7 @@ function TargetsField({
         </Label>
         {several && strategy === 'weighted' && (
           <>
-            <span className="w-20 text-sm font-medium">Weight</span>
+            <span className="w-31 text-sm font-medium">Weight</span>
             <span className="w-26" />
           </>
         )}
@@ -277,6 +283,13 @@ function TargetsField({
                 )
               }
             />
+          )}
+          {several && strategy === 'weighted' && (
+            <span className="w-10 text-right text-sm text-muted-foreground tabular-nums">
+              {t.alias.trim()
+                ? weightShare(t.weight, filledTargets(targets).map((x) => x.weight))
+                : ''}
+            </span>
           )}
           {targets.length > 1 && (
             <>
@@ -840,7 +853,7 @@ export function Models() {
                       <TableCell className="wrap-anywhere">
                         {m.targets.length > 1 ? (
                           <span className="flex flex-col">
-                            {[...new Set(m.targets.map((t) => t.provider))].map((p) => (
+                            {[...new Set(listedTargets(m).map((t) => t.provider))].map((p) => (
                               <span key={p}>{p}</span>
                             ))}
                           </span>
@@ -851,11 +864,14 @@ export function Models() {
                       <TableCell className="font-mono text-xs wrap-anywhere">
                         {m.targets.length > 1 ? (
                           <span className="flex flex-col">
-                            {m.targets.map((t) => (
+                            {listedTargets(m).map((t) => (
                               <span key={t.alias}>
                                 → {t.alias}
                                 {m.strategy === 'weighted' && (
-                                  <span className="text-muted-foreground"> ×{t.weight}</span>
+                                  <span className="text-muted-foreground">
+                                    {' '}
+                                    {weightShare(t.weight, m.targets.map((x) => x.weight))}
+                                  </span>
                                 )}
                               </span>
                             ))}
