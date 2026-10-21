@@ -77,7 +77,11 @@ Four consequences:
 - **Losing the secret** stops every API key validating and makes every stored
   provider credential undecryptable. Recovery means minting new keys (the CLI
   still works, since it writes to the database directly) and re-entering each
-  provider's `api_key`. Principals, models and usage history survive.
+  provider's `api_key`. Principals, models and usage history survive. Every
+  browser session ends too. If the server creates a new secret file while the
+  database holds sessions or API keys, it logs a `WARN` line that names
+  `LLMPROXY_KEY_SECRET`. Set that variable to keep the secret outside the
+  volume.
 - **Rotating the secret has exactly the same effect as losing it.** There is
   no dual-key rotation. Treat it as a planned re-keying event.
 - **The CLI and the server must see the same secret**, through the same
