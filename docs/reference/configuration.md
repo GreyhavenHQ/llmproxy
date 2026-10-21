@@ -24,7 +24,7 @@ default, so check the value when a setting looks like it was ignored.
 | `LLMPROXY_OIDC_GROUPS_CLAIM` | `groups` | Userinfo claim (a string array) read for group membership |
 | `LLMPROXY_OIDC_ADMIN_GROUP` | empty | Members get the `admin` role, reconciled on every login. Empty means SSO users are never auto-promoted |
 | `LLMPROXY_OIDC_REQUIRED_GROUP` | empty | When set, users outside this group cannot log in at all (403 `sso_group_required`) |
-| `LLMPROXY_SESSION_TTL` | `12h` | Browser session lifetime. Sessions are server-side rows; logout and `POST /admin/v1/principals/{id}/revoke-sessions` invalidate them immediately by deletion |
+| `LLMPROXY_SESSION_TTL` | `168h` | How long a browser session stays valid without use. A session used after half of this time gets a new full lifetime. Sessions are server-side rows; logout and `POST /admin/v1/principals/{id}/revoke-sessions` invalidate them immediately by deletion |
 | `LLMPROXY_LOCAL_ADMIN_NAME` | `local-admin` | Name of the admin principal bootstrapped in local mode |
 | `LLMPROXY_ADMIN_PASSWORD` | empty | Browser password for the local admin. When empty, a random one is generated at first boot into the password file. See [the admin password](#the-admin-password) |
 | `LLMPROXY_ADMIN_PASSWORD_FILE` | `.llmproxy/admin-password` | Where the generated admin password lives (created mode 0600). Ignored when `LLMPROXY_ADMIN_PASSWORD` is set |

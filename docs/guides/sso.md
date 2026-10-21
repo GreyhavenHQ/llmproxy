@@ -20,7 +20,7 @@ be externally reachable over HTTPS.
 | `LLMPROXY_OIDC_GROUPS_CLAIM` | no | Userinfo claim read as a string array, default `groups` |
 | `LLMPROXY_OIDC_ADMIN_GROUP` | no | Members get the `admin` role. Unset means no SSO user is ever auto-promoted |
 | `LLMPROXY_OIDC_REQUIRED_GROUP` | no | When set, users outside it are rejected at the callback with 403 `sso_group_required`, and no principal is created |
-| `LLMPROXY_SESSION_TTL` | no | Browser session lifetime, default `12h` |
+| `LLMPROXY_SESSION_TTL` | no | How long a browser session stays valid without use, default `168h` (7 days) |
 
 The server refuses to boot if the first four are not all set. It performs OIDC
 discovery at boot and fails fast with a clear error if the issuer is wrong or
