@@ -121,8 +121,10 @@ Two consequences:
   empty database, so switch before you accumulate keys and usage you care
   about.
 - **The `/data` volume still matters.** It holds the key secret, and existing
-  API keys and encrypted provider credentials are only valid under it. Keep
-  the volume, or set `LLMPROXY_KEY_SECRET` explicitly.
+  API keys, browser sessions and encrypted provider credentials are only
+  valid under it. Keep the volume, or set `LLMPROXY_KEY_SECRET` explicitly.
+  If the volume is lost, every user must sign in again and the server logs a
+  `WARN` line at startup.
 
 ## Deploy on Coolify
 

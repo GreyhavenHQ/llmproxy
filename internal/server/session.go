@@ -129,6 +129,13 @@ func (s *Server) issueSessionCookie(w http.ResponseWriter, r *http.Request, prin
 	return nil
 }
 
+// renewSessionCookie re-sets the cookie of a session that sessionAuth extended.
+func (s *Server) renewSessionCookie(w http.ResponseWriter, r *http.Request, auth *Auth) {
+	if auth != nil && auth.renewedToken != "" {
+		s.setCookie(w, r, sessionCookieName, auth.renewedToken, s.cfg.SessionTTL)
+	}
+}
+
 func (s *Server) clearCookie(w http.ResponseWriter, r *http.Request, name string) {
 	s.setCookie(w, r, name, "", -1)
 }

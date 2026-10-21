@@ -57,7 +57,7 @@ func newFakeIdP(t *testing.T) *httptest.Server {
 	return srv
 }
 
-func newSSOEnv(t *testing.T, idp *httptest.Server, adminGroup, requiredGroup string) *env {
+func newSSOEnv(t *testing.T, idp *httptest.Server, adminGroup, requiredGroup string, opts ...func(*config.Config)) *env {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Config{
@@ -76,6 +76,9 @@ func newSSOEnv(t *testing.T, idp *httptest.Server, adminGroup, requiredGroup str
 		OIDCGroupsClaim:   "groups",
 		OIDCAdminGroup:    adminGroup,
 		OIDCRequiredGroup: requiredGroup,
+	}
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 	secret, err := secrets.LoadOrCreate("", cfg.SecretFile)
 	if err != nil {
@@ -410,6 +413,52 @@ func TestSessionRevocation(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("session after re-login: %d", resp.StatusCode)
+	}
+}
+
+func ssoLogin(t *testing.T, e *env) *http.Client {
+	t.Helper()
+	client := browserClient(t)
+	state := login(t, client, e.proxy.URL)
+	resp, err := client.Get(e.proxy.URL + "/auth/callback?code=good-code&state=" + url.QueryEscape(state))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 303 {
+		t.Fatalf("callback: %d", resp.StatusCode)
+	}
+	return client
+}
+
+func getStatus(t *testing.T, client *http.Client, target string) int {
+	t.Helper()
+	resp, err := client.Get(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// A session in use is extended, so people who work every day are not asked
+// to sign in again.
+func TestSessionSlidesWhileUsed(t *testing.T) {
+	idp := newFakeIdP(t)
+	e := newSSOEnv(t, idp, "", "", func(c *config.Config) { c.SessionTTL = 2 * time.Second })
+	used := ssoLogin(t, e)
+	idle := ssoLogin(t, e)
+	time.Sleep(1200 * time.Millisecond)
+	if code := getStatus(t, used, e.proxy.URL+"/my/keys"); code != 200 {
+		t.Fatalf("before expiry: %d", code)
+	}
+	time.Sleep(900 * time.Millisecond)
+	if code := getStatus(t, idle, e.proxy.URL+"/my/keys"); code != 401 {
+		t.Fatalf("an unused session did not expire: %d", code)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if code := getStatus(t, used, e.proxy.URL+"/my/keys"); code != 200 {
+		t.Fatalf("session used past half its life was not extended: %d", code)
 	}
 }
 

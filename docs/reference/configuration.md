@@ -24,7 +24,7 @@ default, so check the value when a setting looks like it was ignored.
 | `LLMPROXY_OIDC_GROUPS_CLAIM` | `groups` | Userinfo claim (a string array) read for group membership |
 | `LLMPROXY_OIDC_ADMIN_GROUP` | empty | Members get the `admin` role, reconciled on every login. Empty means SSO users are never auto-promoted |
 | `LLMPROXY_OIDC_REQUIRED_GROUP` | empty | When set, users outside this group cannot log in at all (403 `sso_group_required`) |
-| `LLMPROXY_SESSION_TTL` | `12h` | Browser session lifetime. Sessions are server-side rows; logout and `POST /admin/v1/principals/{id}/revoke-sessions` invalidate them immediately by deletion |
+| `LLMPROXY_SESSION_TTL` | `168h` | How long a browser session stays valid without use. A session used after half of this time gets a new full lifetime. Sessions are server-side rows; logout and `POST /admin/v1/principals/{id}/revoke-sessions` invalidate them immediately by deletion |
 | `LLMPROXY_LOCAL_ADMIN_NAME` | `local-admin` | Name of the admin principal bootstrapped in local mode |
 | `LLMPROXY_ADMIN_PASSWORD` | empty | Browser password for the local admin. When empty, a random one is generated at first boot into the password file. See [the admin password](#the-admin-password) |
 | `LLMPROXY_ADMIN_PASSWORD_FILE` | `.llmproxy/admin-password` | Where the generated admin password lives (created mode 0600). Ignored when `LLMPROXY_ADMIN_PASSWORD` is set |
@@ -77,7 +77,11 @@ Four consequences:
 - **Losing the secret** stops every API key validating and makes every stored
   provider credential undecryptable. Recovery means minting new keys (the CLI
   still works, since it writes to the database directly) and re-entering each
-  provider's `api_key`. Principals, models and usage history survive.
+  provider's `api_key`. Principals, models and usage history survive. Every
+  browser session ends too. If the server creates a new secret file while the
+  database holds sessions or API keys, it logs a `WARN` line that names
+  `LLMPROXY_KEY_SECRET`. Set that variable to keep the secret outside the
+  volume.
 - **Rotating the secret has exactly the same effect as losing it.** There is
   no dual-key rotation. Treat it as a planned re-keying event.
 - **The CLI and the server must see the same secret**, through the same

@@ -106,6 +106,36 @@ func openStore(cfg config.Config) (*store.Store, error) {
 	return st, nil
 }
 
+// openSecretAndStore loads the secret and the store, and warns when a new
+// secret meets existing credentials it cannot verify.
+func openSecretAndStore(cfg config.Config) ([]byte, *store.Store, error) {
+	created := false
+	if cfg.KeySecret == "" {
+		data, err := os.ReadFile(cfg.SecretFile)
+		created = err != nil || len(data) == 0
+	}
+	secret, err := secrets.LoadOrCreate(cfg.KeySecret, cfg.SecretFile)
+	if err != nil {
+		return nil, nil, err
+	}
+	st, err := openStore(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	if created {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		has, err := st.HasCredentials(ctx)
+		cancel()
+		if err == nil && has {
+			slog.Warn("created a new secret, but the database holds sessions or API keys from an earlier secret: "+
+				"every user must sign in again and every API key is invalid. "+
+				"Restore the old secret file, or set LLMPROXY_KEY_SECRET so the secret survives a lost volume",
+				"secret_file", cfg.SecretFile)
+		}
+	}
+	return secret, st, nil
+}
+
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	host := fs.String("host", "", "bind address (default from LLMPROXY_HOST)")
@@ -133,11 +163,7 @@ func cmdServe(args []string) error {
 		fmt.Fprintln(os.Stderr, nonlocalWarning)
 	}
 
-	secret, err := secrets.LoadOrCreate(cfg.KeySecret, cfg.SecretFile)
-	if err != nil {
-		return err
-	}
-	st, err := openStore(cfg)
+	secret, st, err := openSecretAndStore(cfg)
 	if err != nil {
 		return err
 	}

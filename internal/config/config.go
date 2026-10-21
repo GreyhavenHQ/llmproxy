@@ -74,7 +74,7 @@ func FromEnv() Config {
 		OIDCGroupsClaim:       envStr("LLMPROXY_OIDC_GROUPS_CLAIM", "groups"),
 		OIDCAdminGroup:        envStr("LLMPROXY_OIDC_ADMIN_GROUP", ""),
 		OIDCRequiredGroup:     envStr("LLMPROXY_OIDC_REQUIRED_GROUP", ""),
-		SessionTTL:            envDuration("LLMPROXY_SESSION_TTL", 12*time.Hour),
+		SessionTTL:            envDuration("LLMPROXY_SESSION_TTL", 168*time.Hour),
 		LocalAdminName:        envStr("LLMPROXY_LOCAL_ADMIN_NAME", "local-admin"),
 		AdminPassword:         envStr("LLMPROXY_ADMIN_PASSWORD", ""),
 		AdminPasswordFile:     envStr("LLMPROXY_ADMIN_PASSWORD_FILE", ".llmproxy/admin-password"),
