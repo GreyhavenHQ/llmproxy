@@ -27,6 +27,9 @@ type Auth struct {
 	// ViaSession marks browser-session auth (the built-in UI). Sessions carry
 	// the principal's role; mutations are origin-checked in sessionAuth.
 	ViaSession bool
+	// renewedToken is a session token whose end time moved; the caller
+	// re-sets the cookie.
+	renewedToken string
 }
 
 func extractAPIKey(r *http.Request) string {
@@ -123,12 +126,31 @@ func (s *Server) sessionAuth(r *http.Request) (*Auth, *apierr.ProxyError) {
 			slog.Warn("failed to update session last_used_at", "error", err)
 		}
 	}
-	return &Auth{
+	auth := &Auth{
 		PrincipalID:   res.PrincipalID,
 		PrincipalName: res.PrincipalName,
 		Role:          res.Role,
 		ViaSession:    true,
-	}, nil
+	}
+	if s.extendSession(r, res) {
+		auth.renewedToken = cookie.Value
+	}
+	return auth, nil
+}
+
+// extendSession gives a session past half its lifetime a full lifetime from
+// now. Earlier requests do not write, so the hot path stays read-mostly.
+func (s *Server) extendSession(r *http.Request, res *store.SessionAuthResult) bool {
+	expires, err := time.Parse(store.TimeFormat, res.ExpiresAt)
+	if err != nil || time.Until(expires) > s.cfg.SessionTTL/2 {
+		return false
+	}
+	next := time.Now().Add(s.cfg.SessionTTL).UTC().Format(store.TimeFormat)
+	if err := s.store.ExtendSession(r.Context(), res.SessionID, next); err != nil {
+		slog.Warn("session renewal failed", "error", err)
+		return false
+	}
+	return true
 }
 
 // legacySessionAuth verifies signed session cookies issued before the session
@@ -174,6 +196,7 @@ func (s *Server) withAuth(next func(http.ResponseWriter, *http.Request, *Auth)) 
 			writeProxyError(w, perr)
 			return
 		}
+		s.renewSessionCookie(w, r, auth)
 		auth.Client = clientFrom(r)
 		auth.Tags = tagsFrom(r)
 		next(w, r, auth)

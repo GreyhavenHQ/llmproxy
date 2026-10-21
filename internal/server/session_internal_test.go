@@ -215,3 +215,95 @@ func TestSecureCookieWidening(t *testing.T) {
 		}
 	}
 }
+
+// serveWithSession runs one request through withAuth with the given cookie.
+func serveWithSession(s *Server, token string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("GET", "/my/keys", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	rec := httptest.NewRecorder()
+	s.withAuth(func(w http.ResponseWriter, r *http.Request, a *Auth) {
+		w.WriteHeader(204)
+	}).ServeHTTP(rec, req)
+	return rec
+}
+
+func TestSessionRenewal(t *testing.T) {
+	s := newSessionTestServer(t)
+	ctx := context.Background()
+	principal, err := s.store.GetOrCreatePrincipal(ctx, "alice", "user", "member", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiresIn := func(token string) time.Duration {
+		t.Helper()
+		res, err := s.store.AuthBySessionHash(ctx, secrets.HashAPIKey(s.secret, token))
+		if err != nil || res == nil {
+			t.Fatalf("session lookup: %v %v", res, err)
+		}
+		at, err := time.Parse(store.TimeFormat, res.ExpiresAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return time.Until(at)
+	}
+	create := func(token string, left time.Duration) {
+		t.Helper()
+		if err := s.store.CreateSession(ctx, principal.ID, secrets.HashAPIKey(s.secret, token),
+			time.Now().Add(left).UTC().Format(store.TimeFormat)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	create("late-token", 20*time.Minute)
+	rec := serveWithSession(s, "late-token")
+	if rec.Code != 204 {
+		t.Fatalf("late session: %d", rec.Code)
+	}
+	if left := expiresIn("late-token"); left < 59*time.Minute {
+		t.Fatalf("session past half its life must be extended, %s left", left)
+	}
+	header := rec.Header().Get("Set-Cookie")
+	if !strings.Contains(header, sessionCookieName+"=late-token") || !strings.Contains(header, "Max-Age=3600") {
+		t.Fatalf("renewal must re-set the cookie, got %q", header)
+	}
+
+	create("fresh-token", 50*time.Minute)
+	rec = serveWithSession(s, "fresh-token")
+	if rec.Code != 204 {
+		t.Fatalf("fresh session: %d", rec.Code)
+	}
+	if left := expiresIn("fresh-token"); left > 51*time.Minute {
+		t.Fatalf("session in its first half must not be extended, %s left", left)
+	}
+	if header := rec.Header().Get("Set-Cookie"); header != "" {
+		t.Fatalf("no cookie expected before half life, got %q", header)
+	}
+
+	rec = serveWithSession(s, legacyToken(s, principal.ID, 10*time.Minute))
+	if rec.Code != 204 {
+		t.Fatalf("legacy session: %d", rec.Code)
+	}
+	if header := rec.Header().Get("Set-Cookie"); header != "" {
+		t.Fatalf("legacy cookies must not be renewed, got %q", header)
+	}
+}
+
+func TestAuthMeRenewsSession(t *testing.T) {
+	s := newSessionTestServer(t)
+	ctx := context.Background()
+	principal, err := s.store.GetOrCreatePrincipal(ctx, "alice", "user", "member", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.store.CreateSession(ctx, principal.ID, secrets.HashAPIKey(s.secret, "me-token"),
+		time.Now().Add(10*time.Minute).UTC().Format(store.TimeFormat)); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "me-token"})
+	rec := httptest.NewRecorder()
+	s.handleAuthMe(rec, req)
+	if header := rec.Header().Get("Set-Cookie"); !strings.Contains(header, "Max-Age=3600") {
+		t.Fatalf("auth/me must renew the session cookie, got %q", header)
+	}
+}

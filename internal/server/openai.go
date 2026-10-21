@@ -35,10 +35,12 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	includeHidden := r.URL.Query().Get("include_hidden") == "1"
 	includePricing := r.URL.Query().Get("include_pricing") == "1"
 	if includeHidden || includePricing {
-		if _, perr := s.authenticate(r); perr != nil {
+		auth, perr := s.authenticate(r)
+		if perr != nil {
 			writeProxyError(w, perr)
 			return
 		}
+		s.renewSessionCookie(w, r, auth)
 	}
 	idx := s.pricing.Load()
 	bindings, err := s.store.ListServableBindings(r.Context(), includeHidden)

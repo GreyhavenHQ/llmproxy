@@ -71,6 +71,7 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		"password_enabled": s.adminPassword != "",
 	}
 	if auth, perr := s.authenticate(r); perr == nil && auth != nil {
+		s.renewSessionCookie(w, r, auth)
 		view["authenticated"] = true
 		view["name"] = auth.PrincipalName
 		view["role"] = auth.Role
