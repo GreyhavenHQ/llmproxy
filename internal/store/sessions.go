@@ -14,6 +14,7 @@ type SessionAuthResult struct {
 	PrincipalID   string
 	PrincipalName string
 	Role          string
+	ExpiresAt     string
 	LastUsedAt    sql.NullString
 }
 
@@ -31,11 +32,11 @@ func (s *Store) CreateSession(ctx context.Context, principalID, tokenHash, expir
 // for an unknown, expired or deleted session.
 func (s *Store) AuthBySessionHash(ctx context.Context, tokenHash string) (*SessionAuthResult, error) {
 	row := s.db.QueryRowContext(ctx, s.q(`
-		SELECT se.id, se.last_used_at, p.id, p.name, p.role
+		SELECT se.id, se.expires_at, se.last_used_at, p.id, p.name, p.role
 		FROM session se JOIN principal p ON se.principal_id = p.id
 		WHERE se.token_hash = ? AND se.expires_at > ?`), tokenHash, Now())
 	var a SessionAuthResult
-	if err := row.Scan(&a.SessionID, &a.LastUsedAt, &a.PrincipalID, &a.PrincipalName, &a.Role); err != nil {
+	if err := row.Scan(&a.SessionID, &a.ExpiresAt, &a.LastUsedAt, &a.PrincipalID, &a.PrincipalName, &a.Role); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -48,6 +49,23 @@ func (s *Store) TouchSession(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx,
 		s.q(`UPDATE session SET last_used_at = ? WHERE id = ?`), Now(), id)
 	return err
+}
+
+// ExtendSession moves the end time of a live session. An expired or deleted
+// session stays dead.
+func (s *Store) ExtendSession(ctx context.Context, id, expiresAt string) error {
+	_, err := s.db.ExecContext(ctx,
+		s.q(`UPDATE session SET expires_at = ? WHERE id = ? AND expires_at > ?`), expiresAt, id, Now())
+	return err
+}
+
+// HasCredentials reports whether any session or API key exists, to tell a
+// first start from a lost secret.
+func (s *Store) HasCredentials(ctx context.Context) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT (SELECT COUNT(*) FROM session) + (SELECT COUNT(*) FROM api_key)`).Scan(&n)
+	return n > 0, err
 }
 
 // DeleteSessionByHash removes one session (logout). Deletion is the
